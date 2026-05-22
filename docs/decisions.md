@@ -111,6 +111,12 @@ Entscheidung: Der MVP nutzt EF Core mit SQLite und Migrations ab der Domain-/Per
 
 Konsequenz: Der MVP baut nicht erst auf In-Memory-Repositories. Domain-, Service- und Persistenzgrenzen werden früh testbar und realitätsnah geschnitten.
 
+### 2026-05-22 — Frontend Package Manager: pnpm
+
+Entscheidung: Das Frontend nutzt pnpm als verbindlichen Package Manager.
+
+Konsequenz: Phase 0 erzeugt `pnpm-lock.yaml`, verwendet pnpm in Docker/Validierung und vermeidet gemischte Lockfiles wie `package-lock.json` oder `yarn.lock`.
+
 ## Vorläufige technische Präferenzen
 
 Aktueller Stand:
@@ -119,6 +125,7 @@ Aktueller Stand:
 - API Framework: FastEndpoints
 - Frontend: React
 - Frontend Details: Vite, MUI, TanStack Query, Zod, Biome, Vitest
+- Frontend Package Manager: pnpm
 - Deployment: Docker Compose für MVP
 - Datenbank: EF Core + SQLite + Migrations für MVP, Postgres später möglich
 - Auth MVP: lokale Admin-Auth per ENV Admin Seed
