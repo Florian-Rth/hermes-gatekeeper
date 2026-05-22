@@ -33,23 +33,40 @@ public sealed class AuditEvent
         string payloadJson
     )
     {
-        if (aggregateId == Guid.Empty)
+        return CreateForAggregate("AccessRequestCreated", aggregateId, occurredAt, payloadJson);
+    }
+
+    public static AuditEvent CreateAccessRequestApproved(
+        Guid aggregateId,
+        DateTimeOffset occurredAt,
+        string payloadJson
+    )
+    {
+        return CreateForAggregate("AccessRequestApproved", aggregateId, occurredAt, payloadJson);
+    }
+
+    public static AuditEvent CreateAccessRequestDenied(
+        Guid aggregateId,
+        DateTimeOffset occurredAt,
+        string payloadJson
+    )
+    {
+        return CreateForAggregate("AccessRequestDenied", aggregateId, occurredAt, payloadJson);
+    }
+
+    public static AuditEvent CreateSessionCreated(
+        Guid sessionId,
+        Guid accessRequestId,
+        DateTimeOffset occurredAt,
+        string payloadJson
+    )
+    {
+        if (accessRequestId == Guid.Empty)
         {
-            throw new ArgumentException("Aggregate id is required.", nameof(aggregateId));
+            throw new ArgumentException("Access request id is required.", nameof(accessRequestId));
         }
 
-        if (string.IsNullOrWhiteSpace(payloadJson))
-        {
-            throw new ArgumentException("Payload JSON is required.", nameof(payloadJson));
-        }
-
-        return new AuditEvent(
-            Guid.NewGuid(),
-            "AccessRequestCreated",
-            aggregateId,
-            occurredAt,
-            payloadJson
-        );
+        return CreateForAggregate("SessionCreated", sessionId, occurredAt, payloadJson);
     }
 
     public static AuditEvent Load(
@@ -66,5 +83,25 @@ public sealed class AuditEvent
         }
 
         return new AuditEvent(id, eventType, aggregateId, occurredAt, payloadJson);
+    }
+
+    private static AuditEvent CreateForAggregate(
+        string eventType,
+        Guid aggregateId,
+        DateTimeOffset occurredAt,
+        string payloadJson
+    )
+    {
+        if (aggregateId == Guid.Empty)
+        {
+            throw new ArgumentException("Aggregate id is required.", nameof(aggregateId));
+        }
+
+        if (string.IsNullOrWhiteSpace(payloadJson))
+        {
+            throw new ArgumentException("Payload JSON is required.", nameof(payloadJson));
+        }
+
+        return new AuditEvent(Guid.NewGuid(), eventType, aggregateId, occurredAt, payloadJson);
     }
 }

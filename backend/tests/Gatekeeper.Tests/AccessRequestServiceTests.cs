@@ -1,6 +1,8 @@
 using Gatekeeper.Application.AccessRequests;
 using Gatekeeper.Application.Common;
+using Gatekeeper.Application.Sessions;
 using Gatekeeper.Core.AccessRequests;
+using Gatekeeper.Core.Sessions;
 
 namespace Gatekeeper.Tests;
 
@@ -11,9 +13,11 @@ public sealed class AccessRequestServiceTests
     {
         var now = new DateTimeOffset(2026, 5, 22, 12, 0, 0, TimeSpan.Zero);
         var accessRequests = new FakeAccessRequestRepository();
+        var sessions = new FakeSessionRepository();
         var auditEvents = new FakeAuditEventRepository();
         var service = new AccessRequestService(
             accessRequests,
+            sessions,
             new FakeAccessRequestUnitOfWork(),
             auditEvents,
             new FixedClock(now)
@@ -40,8 +44,10 @@ public sealed class AccessRequestServiceTests
     {
         var now = new DateTimeOffset(2026, 5, 22, 12, 0, 0, TimeSpan.Zero);
         var accessRequests = new FakeAccessRequestRepository();
+        var sessions = new FakeSessionRepository();
         var service = new AccessRequestService(
             accessRequests,
+            sessions,
             new FakeAccessRequestUnitOfWork(),
             new FakeAuditEventRepository(),
             new FixedClock(now)
@@ -68,8 +74,10 @@ public sealed class AccessRequestServiceTests
     {
         var clock = new MutableClock(new DateTimeOffset(2026, 5, 22, 12, 0, 0, TimeSpan.Zero));
         var accessRequests = new FakeAccessRequestRepository();
+        var sessions = new FakeSessionRepository();
         var service = new AccessRequestService(
             accessRequests,
+            sessions,
             new FakeAccessRequestUnitOfWork(),
             new FakeAuditEventRepository(),
             clock
@@ -93,6 +101,189 @@ public sealed class AccessRequestServiceTests
         Assert.Equal("Oldest", result[1].Intent);
     }
 
+    [Fact]
+    public async Task ApproveAsync_CreatesActiveSessionAndWritesAuditEvents()
+    {
+        var now = new DateTimeOffset(2026, 5, 22, 12, 0, 0, TimeSpan.Zero);
+        var service = CreateService(
+            out var accessRequests,
+            out var sessions,
+            out var auditEvents,
+            out var unitOfWork,
+            now
+        );
+        var request = CreateAccessRequest(now.AddMinutes(-5));
+        accessRequests.Items.Add(request);
+
+        var result = await service.ApproveAsync(
+            new ApproveAccessRequestCommand(request.Id, "looks good"),
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.True(result.Success);
+        Assert.False(result.NotFound);
+        Assert.False(result.Conflict);
+        Assert.NotNull(result.AccessRequest);
+        Assert.NotNull(result.Session);
+        Assert.Equal(AccessRequestStatus.Approved, result.AccessRequest.Status);
+        Assert.Equal(now, result.AccessRequest.UpdatedAt);
+        Assert.Equal(request.Id, result.Session.AccessRequestId);
+        Assert.Equal(SessionStatus.Active, result.Session.Status);
+        Assert.Equal(["prod-api"], result.Session.AllowedTargets);
+        Assert.Equal(["logs:read"], result.Session.AllowedCapabilities);
+        Assert.Equal(now, result.Session.CreatedAt);
+        Assert.Equal(now.AddMinutes(30), result.Session.ExpiresAt);
+        var persistedRequest = Assert.Single(accessRequests.Items);
+        Assert.Equal(AccessRequestStatus.Approved, persistedRequest.Status);
+        var persistedSession = Assert.Single(sessions.Items);
+        Assert.Equal(result.Session.Id, persistedSession.Id);
+        Assert.Equal(2, auditEvents.Items.Count);
+        Assert.Contains(
+            auditEvents.Items,
+            item =>
+                item.EventType == "AccessRequestApproved"
+                && item.AggregateId == request.Id
+                && item.PayloadJson.Contains("looks good")
+        );
+        Assert.Contains(
+            auditEvents.Items,
+            item => item.EventType == "SessionCreated" && item.AggregateId == result.Session.Id
+        );
+        Assert.Equal(1, unitOfWork.SaveChangesCount);
+    }
+
+    [Fact]
+    public async Task DenyAsync_WritesAuditEventAndCreatesNoSession()
+    {
+        var now = new DateTimeOffset(2026, 5, 22, 12, 0, 0, TimeSpan.Zero);
+        var service = CreateService(
+            out var accessRequests,
+            out var sessions,
+            out var auditEvents,
+            out var unitOfWork,
+            now
+        );
+        var request = CreateAccessRequest(now.AddMinutes(-5));
+        accessRequests.Items.Add(request);
+
+        var result = await service.DenyAsync(
+            new DenyAccessRequestCommand(request.Id, "too risky"),
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.True(result.Success);
+        Assert.False(result.NotFound);
+        Assert.False(result.Conflict);
+        Assert.NotNull(result.AccessRequest);
+        Assert.Equal(AccessRequestStatus.Denied, result.AccessRequest.Status);
+        Assert.Empty(sessions.Items);
+        var persistedRequest = Assert.Single(accessRequests.Items);
+        Assert.Equal(AccessRequestStatus.Denied, persistedRequest.Status);
+        var auditEvent = Assert.Single(auditEvents.Items);
+        Assert.Equal("AccessRequestDenied", auditEvent.EventType);
+        Assert.Equal(request.Id, auditEvent.AggregateId);
+        Assert.Contains("too risky", auditEvent.PayloadJson);
+        Assert.Equal(1, unitOfWork.SaveChangesCount);
+    }
+
+    [Fact]
+    public async Task ApproveAsync_ReturnsNotFoundForMissingRequest()
+    {
+        var service = CreateService(
+            out _,
+            out _,
+            out _,
+            out var unitOfWork,
+            new DateTimeOffset(2026, 5, 22, 12, 0, 0, TimeSpan.Zero)
+        );
+
+        var result = await service.ApproveAsync(
+            new ApproveAccessRequestCommand(Guid.NewGuid(), null),
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.False(result.Success);
+        Assert.True(result.NotFound);
+        Assert.False(result.Conflict);
+        Assert.Equal(0, unitOfWork.SaveChangesCount);
+    }
+
+    [Fact]
+    public async Task DenyAsync_ReturnsNotFoundForMissingRequest()
+    {
+        var service = CreateService(
+            out _,
+            out _,
+            out _,
+            out var unitOfWork,
+            new DateTimeOffset(2026, 5, 22, 12, 0, 0, TimeSpan.Zero)
+        );
+
+        var result = await service.DenyAsync(
+            new DenyAccessRequestCommand(Guid.NewGuid(), null),
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.False(result.Success);
+        Assert.True(result.NotFound);
+        Assert.False(result.Conflict);
+        Assert.Equal(0, unitOfWork.SaveChangesCount);
+    }
+
+    [Fact]
+    public async Task ApproveAsync_ReturnsConflictForNonPendingRequest()
+    {
+        var now = new DateTimeOffset(2026, 5, 22, 12, 0, 0, TimeSpan.Zero);
+        var service = CreateService(
+            out var accessRequests,
+            out var sessions,
+            out var auditEvents,
+            out var unitOfWork,
+            now
+        );
+        var request = CreateAccessRequest(now).Approve(now);
+        accessRequests.Items.Add(request);
+
+        var result = await service.ApproveAsync(
+            new ApproveAccessRequestCommand(request.Id, null),
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.False(result.Success);
+        Assert.False(result.NotFound);
+        Assert.True(result.Conflict);
+        Assert.Empty(sessions.Items);
+        Assert.Empty(auditEvents.Items);
+        Assert.Equal(0, unitOfWork.SaveChangesCount);
+    }
+
+    [Fact]
+    public async Task DenyAsync_ReturnsConflictForNonPendingRequest()
+    {
+        var now = new DateTimeOffset(2026, 5, 22, 12, 0, 0, TimeSpan.Zero);
+        var service = CreateService(
+            out var accessRequests,
+            out var sessions,
+            out var auditEvents,
+            out var unitOfWork,
+            now
+        );
+        var request = CreateAccessRequest(now).Deny(now);
+        accessRequests.Items.Add(request);
+
+        var result = await service.DenyAsync(
+            new DenyAccessRequestCommand(request.Id, null),
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.False(result.Success);
+        Assert.False(result.NotFound);
+        Assert.True(result.Conflict);
+        Assert.Empty(sessions.Items);
+        Assert.Empty(auditEvents.Items);
+        Assert.Equal(0, unitOfWork.SaveChangesCount);
+    }
+
     private static CreateAccessRequestCommand CreateCommand(string intent)
     {
         return new CreateAccessRequestCommand(
@@ -109,6 +300,44 @@ public sealed class AccessRequestServiceTests
         );
     }
 
+    private static AccessRequest CreateAccessRequest(DateTimeOffset now)
+    {
+        return AccessRequest.Create(
+            "Diagnose production incident",
+            "alice@example.test",
+            ["prod-api"],
+            ["logs:read"],
+            30,
+            RiskLevel.Low,
+            "Incident response",
+            ["inspect logs"],
+            ["restart service"],
+            new Dictionary<string, string> { ["ticket"] = "INC-123" },
+            now
+        );
+    }
+
+    private static AccessRequestService CreateService(
+        out FakeAccessRequestRepository accessRequests,
+        out FakeSessionRepository sessions,
+        out FakeAuditEventRepository auditEvents,
+        out FakeAccessRequestUnitOfWork unitOfWork,
+        DateTimeOffset now
+    )
+    {
+        accessRequests = new FakeAccessRequestRepository();
+        sessions = new FakeSessionRepository();
+        auditEvents = new FakeAuditEventRepository();
+        unitOfWork = new FakeAccessRequestUnitOfWork();
+        return new AccessRequestService(
+            accessRequests,
+            sessions,
+            unitOfWork,
+            auditEvents,
+            new FixedClock(now)
+        );
+    }
+
     private sealed class FakeAccessRequestRepository : IAccessRequestRepository
     {
         public List<AccessRequest> Items { get; } = [];
@@ -116,6 +345,17 @@ public sealed class AccessRequestServiceTests
         public Task AddAsync(AccessRequest accessRequest, CancellationToken cancellationToken)
         {
             Items.Add(accessRequest);
+            return Task.CompletedTask;
+        }
+
+        public Task UpdateAsync(AccessRequest accessRequest, CancellationToken cancellationToken)
+        {
+            var index = Items.FindIndex(item => item.Id == accessRequest.Id);
+            if (index >= 0)
+            {
+                Items[index] = accessRequest;
+            }
+
             return Task.CompletedTask;
         }
 
@@ -127,6 +367,22 @@ public sealed class AccessRequestServiceTests
         public Task<IReadOnlyList<AccessRequest>> ListAsync(CancellationToken cancellationToken)
         {
             return Task.FromResult<IReadOnlyList<AccessRequest>>(Items);
+        }
+    }
+
+    private sealed class FakeSessionRepository : ISessionRepository
+    {
+        public List<Session> Items { get; } = [];
+
+        public Task AddAsync(Session session, CancellationToken cancellationToken)
+        {
+            Items.Add(session);
+            return Task.CompletedTask;
+        }
+
+        public Task<Session?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(Items.SingleOrDefault(item => item.Id == id));
         }
     }
 
@@ -143,8 +399,11 @@ public sealed class AccessRequestServiceTests
 
     private sealed class FakeAccessRequestUnitOfWork : IAccessRequestUnitOfWork
     {
+        public int SaveChangesCount { get; private set; }
+
         public Task SaveChangesAsync(CancellationToken cancellationToken)
         {
+            SaveChangesCount++;
             return Task.CompletedTask;
         }
     }

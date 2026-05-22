@@ -127,6 +127,16 @@ public sealed class AccessRequest
         );
     }
 
+    public AccessRequest Approve(DateTimeOffset now)
+    {
+        return TransitionTo(AccessRequestStatus.Approved, now);
+    }
+
+    public AccessRequest Deny(DateTimeOffset now)
+    {
+        return TransitionTo(AccessRequestStatus.Denied, now);
+    }
+
     public static AccessRequest Load(
         Guid id,
         string intent,
@@ -164,6 +174,31 @@ public sealed class AccessRequest
             status,
             createdAt,
             updatedAt
+        );
+    }
+
+    private AccessRequest TransitionTo(AccessRequestStatus status, DateTimeOffset now)
+    {
+        if (Status != AccessRequestStatus.Pending)
+        {
+            throw new InvalidOperationException("Only pending access requests can transition.");
+        }
+
+        return new AccessRequest(
+            Id,
+            Intent,
+            Requester,
+            Targets,
+            RequestedCapabilities,
+            DurationMinutes,
+            Risk,
+            Justification,
+            ProposedActions,
+            ForbiddenActions,
+            Metadata,
+            status,
+            CreatedAt,
+            now
         );
     }
 

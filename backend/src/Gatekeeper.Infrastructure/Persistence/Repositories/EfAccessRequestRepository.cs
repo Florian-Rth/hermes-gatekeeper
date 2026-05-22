@@ -21,6 +21,28 @@ public sealed class EfAccessRequestRepository : IAccessRequestRepository
         await _dbContext.AccessRequests.AddAsync(ToEntity(accessRequest), cancellationToken);
     }
 
+    public Task UpdateAsync(AccessRequest accessRequest, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(accessRequest);
+
+        AccessRequestEntity entity = ToEntity(accessRequest);
+        AccessRequestEntity? tracked = _dbContext.AccessRequests.Local.SingleOrDefault(item =>
+            item.Id == accessRequest.Id
+        );
+        if (tracked is null)
+        {
+            _dbContext.AccessRequests.Update(entity);
+            MarkPendingStatusTransition(entity);
+        }
+        else
+        {
+            _dbContext.Entry(tracked).CurrentValues.SetValues(entity);
+            MarkPendingStatusTransition(tracked);
+        }
+
+        return Task.CompletedTask;
+    }
+
     public async Task<AccessRequest?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
     {
         AccessRequestEntity? entity = await _dbContext
@@ -64,6 +86,17 @@ public sealed class EfAccessRequestRepository : IAccessRequestRepository
             CreatedAt = accessRequest.CreatedAt,
             UpdatedAt = accessRequest.UpdatedAt,
         };
+    }
+
+    private void MarkPendingStatusTransition(AccessRequestEntity entity)
+    {
+        if (entity.Status == AccessRequestStatus.Pending)
+        {
+            return;
+        }
+
+        _dbContext.Entry(entity).Property(accessRequest => accessRequest.Status).OriginalValue =
+            AccessRequestStatus.Pending;
     }
 
     private static AccessRequest ToDomain(AccessRequestEntity entity)

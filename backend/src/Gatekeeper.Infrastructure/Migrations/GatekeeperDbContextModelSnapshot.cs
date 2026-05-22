@@ -1,5 +1,6 @@
 using System;
 using Gatekeeper.Core.AccessRequests;
+using Gatekeeper.Core.Sessions;
 using Gatekeeper.Infrastructure.Persistence;
 using Gatekeeper.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -54,7 +55,10 @@ public sealed partial class GatekeeperDbContextModelSnapshot : ModelSnapshot
 
                 entity.Property<RiskLevel>("Risk").HasColumnType("INTEGER");
 
-                entity.Property<AccessRequestStatus>("Status").HasColumnType("INTEGER");
+                entity
+                    .Property<AccessRequestStatus>("Status")
+                    .IsConcurrencyToken()
+                    .HasColumnType("INTEGER");
 
                 entity.Property<string>("TargetsJson").IsRequired().HasColumnType("TEXT");
 
@@ -95,6 +99,39 @@ public sealed partial class GatekeeperDbContextModelSnapshot : ModelSnapshot
                 entity.HasIndex("OccurredAt");
 
                 entity.ToTable("AuditEvents", (string)null);
+            }
+        );
+
+        modelBuilder.Entity(
+            "Gatekeeper.Infrastructure.Persistence.Entities.SessionEntity",
+            entity =>
+            {
+                entity.Property<Guid>("Id").HasColumnType("TEXT");
+
+                entity.Property<Guid>("AccessRequestId").HasColumnType("TEXT");
+
+                entity
+                    .Property<string>("AllowedCapabilitiesJson")
+                    .IsRequired()
+                    .HasColumnType("TEXT");
+
+                entity.Property<string>("AllowedTargetsJson").IsRequired().HasColumnType("TEXT");
+
+                entity.Property<DateTimeOffset>("CreatedAt").HasColumnType("TEXT");
+
+                entity.Property<DateTimeOffset>("ExpiresAt").HasColumnType("TEXT");
+
+                entity.Property<SessionStatus>("Status").HasColumnType("INTEGER");
+
+                entity.HasKey("Id");
+
+                entity.HasIndex("AccessRequestId").IsUnique();
+
+                entity.HasIndex("ExpiresAt");
+
+                entity.HasIndex("Status");
+
+                entity.ToTable("Sessions", (string)null);
             }
         );
     }

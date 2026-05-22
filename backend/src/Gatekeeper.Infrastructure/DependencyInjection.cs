@@ -1,4 +1,5 @@
 using Gatekeeper.Application.AccessRequests;
+using Gatekeeper.Application.Sessions;
 using Gatekeeper.Infrastructure.Persistence;
 using Gatekeeper.Infrastructure.Persistence.Repositories;
 using Microsoft.Data.Sqlite;
@@ -25,9 +26,11 @@ public static class DependencyInjection
 
         services.AddDbContext<GatekeeperDbContext>(options => options.UseSqlite(connectionString));
         services.AddScoped<IAccessRequestRepository, EfAccessRequestRepository>();
+        services.AddScoped<ISessionRepository, EfSessionRepository>();
         services.AddScoped<IAccessRequestUnitOfWork, EfAccessRequestUnitOfWork>();
         services.AddScoped<IAuditEventRepository, EfAuditEventRepository>();
         services.AddScoped<IAccessRequestService, AccessRequestService>();
+        services.AddScoped<ISessionService, SessionService>();
 
         return services;
     }
