@@ -17,6 +17,26 @@ Der Plan ist bewusst phasenorientiert: Jede Phase hat ein klares Ergebnis, eine 
 - Docker Compose ist das MVP-Deployment-Ziel.
 - SQLite reicht für den MVP; Postgres bleibt später optional.
 - Lokale Admin-Auth reicht für den MVP; OIDC/Passkeys/mTLS kommen später.
+- Repo-Struktur ist verbindlich: Backend in `backend/`, Frontend in `frontend/`.
+- Backend nutzt EF Core + SQLite + Migrations ab Phase 1.
+- MVP-Auth nutzt ENV-seeded lokalen Admin und statischen Agent Client Token.
+- Frontend nutzt React + Vite + MUI + TanStack Query + Zod + Biome + Vitest.
+
+## Arbeitsworkflow
+
+Die Umsetzung folgt Florians AI-Coding-Workflow:
+
+1. Grobe Idee mit Grill-Me ausarbeiten.
+2. Markdown-Masterplan erstellen oder aktualisieren.
+3. Pro Phase einen frischen Agenten/Kontext starten.
+4. Die Phase mit Grill-Me ausarbeiten.
+5. Entscheidungen und Scope-Verschiebungen zurück in diesen Plan schreiben.
+6. Phase in kleinen validierbaren Slices implementieren.
+7. Relevante Validierung ausführen.
+8. Committen und pushen.
+9. Für die nächste Phase wieder frischen Kontext verwenden.
+
+Backend-Arbeit folgt `florian-backend-work` und `florian-tdd`. Frontend-Arbeit folgt `florian-frontend-work`. Codex darf als Implementierungsworker eingesetzt werden, aber nicht ohne anschließenden Spec-/Quality-Review.
 
 ---
 
@@ -31,7 +51,7 @@ Das Repository wird so vorbereitet, dass Backend, Frontend, Tests, lokale Entwic
 Ein leerer, aber lauffähiger Projekt-Skeleton existiert:
 
 - .NET Backend-Projekt mit ASP.NET Core und FastEndpoints
-- React Frontend-Projekt
+- React/Vite Frontend-Projekt mit MUI, TanStack Query, Zod, Biome und Vitest
 - gemeinsame Docker-Compose-Entwicklung
 - Basis-Konfiguration für SQLite
 - automatisierte Tests laufen lokal
@@ -39,12 +59,14 @@ Ein leerer, aber lauffähiger Projekt-Skeleton existiert:
 
 ### Inhalte
 
-- Solution-Struktur anlegen, z.B.:
-  - `src/Gatekeeper.Api`
-  - `src/Gatekeeper.Domain`
-  - `src/Gatekeeper.Infrastructure`
-  - `tests/Gatekeeper.Tests`
-  - `web/`
+- Solution-Struktur in `backend/` anlegen, z.B.:
+  - `backend/Gatekeeper.sln`
+  - `backend/src/Gatekeeper.Api`
+  - `backend/src/Gatekeeper.Core`
+  - `backend/src/Gatekeeper.Application`
+  - `backend/src/Gatekeeper.Infrastructure`
+  - `backend/tests/Gatekeeper.Tests`
+- Frontend-Struktur in `frontend/` anlegen.
 - FastEndpoints einrichten.
 - OpenAPI/Swagger aktivieren.
 - Health Endpoint hinzufügen.

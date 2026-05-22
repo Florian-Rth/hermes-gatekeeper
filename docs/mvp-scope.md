@@ -17,10 +17,16 @@ Nicht Ziel des MVP: direkte produktive HomeLab-Integration.
 
 - .NET / ASP.NET Core, neueste stabile Version
 - FastEndpoints
-- React Frontend
-- SQLite
+- React + Vite
+- MUI
+- TanStack Query
+- Zod
+- Biome
+- Vitest
+- EF Core + SQLite + Migrations
 - Docker Compose
-- lokale Admin-Auth
+- lokale Admin-Auth per ENV-seeded Admin
+- statischer Agent Client Token per ENV
 - OpenAPI/Swagger
 
 ## MVP-Leitentscheidung
@@ -36,6 +42,28 @@ Begründung:
 - erlaubt End-to-End Tests ohne echte Zielsysteme
 
 ## MVP Features
+
+## Repo-Struktur
+
+- Backend: `backend/`
+- Frontend: `frontend/`
+- Dokumentation: `docs/`
+- Docker Compose auf Repo-Root-Ebene
+
+Backend-Solution:
+
+- `backend/Gatekeeper.sln`
+- `backend/src/Gatekeeper.Api`
+- `backend/src/Gatekeeper.Core`
+- `backend/src/Gatekeeper.Application`
+- `backend/src/Gatekeeper.Infrastructure`
+- `backend/tests/Gatekeeper.Tests`
+
+Frontend-App:
+
+- `frontend/`
+- Feature-basierte Module unter `frontend/src/features/<name>/`
+- Shared UI/Layout unter `frontend/src/components`, `frontend/src/lib`, `frontend/src/styles`
 
 ### 1. Access Requests
 

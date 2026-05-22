@@ -87,6 +87,30 @@ Entscheidung: Das primäre Interface für Hermes ist eine HTTP API. Ein Hermes T
 
 Konsequenz: Gatekeeper bleibt generisch und nicht Hermes-only. Andere Agenten, CLIs und Scripts können dieselbe API nutzen. Details stehen in `docs/interface-model.md`.
 
+### 2026-05-22 — Repo-Struktur: backend/ und frontend/
+
+Entscheidung: Das Repository enthält Backend und Frontend. Backend-Code liegt unter `backend/`, Frontend-Code unter `frontend/`.
+
+Konsequenz: Alle Pläne, Agentenprompts, Docker-Dateien und Validierungsbefehle müssen diese Struktur verwenden. Alte Beispielpfade wie `src/...` oder `web/` sind nicht mehr gültig.
+
+### 2026-05-22 — MVP Auth: ENV Admin + statischer Agent Token
+
+Entscheidung: Der MVP nutzt einen lokalen Admin, der beim Start aus Environment-Variablen angelegt wird, sowie einen statischen Agent Client Token aus Environment-Konfiguration.
+
+Konsequenz: Kein Setup-Flow im MVP. Admin-Auth und Agent-Auth sind trotzdem klar getrennt. Docker Compose kann `.env.example` dokumentieren.
+
+### 2026-05-22 — Frontend Stack: React/Vite/MUI/TanStack Query/Zod/Biome/Vitest
+
+Entscheidung: Das Frontend wird mit React + Vite gebaut und nutzt MUI, TanStack Query, Zod, Biome und Vitest.
+
+Konsequenz: Die Frontend-Implementierung folgt den Regeln aus `florian-frontend-work`: feature-basierte Module, validierte API-Boundaries, MUI-Konventionen, Biome statt ESLint/Prettier.
+
+### 2026-05-22 — Persistenz: EF Core + SQLite + Migrations ab Phase 1
+
+Entscheidung: Der MVP nutzt EF Core mit SQLite und Migrations ab der Domain-/Persistenzphase.
+
+Konsequenz: Der MVP baut nicht erst auf In-Memory-Repositories. Domain-, Service- und Persistenzgrenzen werden früh testbar und realitätsnah geschnitten.
+
 ## Vorläufige technische Präferenzen
 
 Aktueller Stand:
@@ -94,9 +118,10 @@ Aktueller Stand:
 - Backend: neuestes .NET / ASP.NET Core
 - API Framework: FastEndpoints
 - Frontend: React
+- Frontend Details: Vite, MUI, TanStack Query, Zod, Biome, Vitest
 - Deployment: Docker Compose für MVP
-- Datenbank: SQLite für MVP, Postgres später möglich
-- Auth MVP: lokale Admin-Auth
+- Datenbank: EF Core + SQLite + Migrations für MVP, Postgres später möglich
+- Auth MVP: lokale Admin-Auth per ENV Admin Seed
 - Transport Hermes -> Gatekeeper: Client Token für MVP; mTLS später prüfen
 - Audit: DB + JSONL denkbar, später append-only Hash Chain
 
@@ -104,10 +129,9 @@ Aktueller Stand:
 
 ### Auth / Identity
 
-- Wie genau soll lokale Admin-Auth im MVP aussehen?
-  - initialer Admin via Setup Secret?
-  - Username/Passwort + TOTP?
-  - Recovery Codes?
+- Wie sollen ENV Admin Credentials in der Produktion rotiert werden?
+- Soll es nach dem MVP einen Setup-Flow statt ENV-Seed geben?
+- Sollen Recovery Codes oder TOTP nach dem MVP ergänzt werden?
 - Soll die Web-UI nur intern erreichbar sein oder auch extern/VPN?
 - Soll WhatsApp-Genehmigung später zusätzlich möglich sein oder ausschließlich Web-UI?
 - Welche OIDC-Lösung wäre später optional sinnvoll, falls Nutzer bereits Authentik/Authelia/Keycloak einsetzen?
