@@ -1,0 +1,23 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: src/Gatekeeper.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      GATEKEEPER_ADMIN_USERNAME: ${GATEKEEPER_ADMIN_USERNAME:-admin}
+      GATEKEEPER_ADMIN_PASSWORD: ${GATEKEEPER_ADMIN_PASSWORD:-change-me-local-only}
+      GATEKEEPER_AGENT_TOKEN: ${GATEKEEPER_AGENT_TOKEN:-dev-agent-token-local-only}
+      GATEKEEPER_SQLITE_DATA_PATH: ${GATEKEEPER_SQLITE_DATA_PATH:-/data/gatekeeper.db}
+    ports:
+      - "5209:8080"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"

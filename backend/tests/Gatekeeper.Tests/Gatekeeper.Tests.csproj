@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Gatekeeper.Api\Gatekeeper.Api.csproj" />
+    <ProjectReference Include="..\..\src\Gatekeeper.Application\Gatekeeper.Application.csproj" />
+    <ProjectReference Include="..\..\src\Gatekeeper.Core\Gatekeeper.Core.csproj" />
+    <ProjectReference Include="..\..\src\Gatekeeper.Infrastructure\Gatekeeper.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>
