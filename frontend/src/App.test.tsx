@@ -1,16 +1,30 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "@/App";
 
+const emptyListResponse = { items: [] };
+
 describe("App", () => {
-  it("renders the placeholder page", (): void => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("renders the approval dashboard", async (): Promise<void> => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response(JSON.stringify(emptyListResponse)))),
+    );
+
     render(<App />);
 
     expect(
       screen.getByRole("heading", { level: 1, name: "Hermes Gatekeeper" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { level: 2, name: "Frontend Skeleton bereit" }),
+      await screen.findByRole("heading", { level: 2, name: "Access requests" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Admin approval token" }),
     ).toBeInTheDocument();
   });
 });

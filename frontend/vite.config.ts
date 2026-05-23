@@ -15,6 +15,12 @@ const config = {
       ),
     },
   },
+  server: {
+    proxy: {
+      "/api": "http://localhost:5209",
+      "/health": "http://localhost:5209",
+    },
+  },
   build: {
     chunkSizeWarningLimit: 1000,
   },
