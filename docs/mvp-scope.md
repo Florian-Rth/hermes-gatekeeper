@@ -1,5 +1,35 @@
 # Hermes Gatekeeper — MVP Scope Draft
 
+## Aktueller MVP-Stand
+
+Stand 2026-05-23 ist der Backend-Kern des MVPs bis zum Dummy-Action-Broker umgesetzt:
+
+```text
+Access Request -> Approve/Deny -> Session -> Execute typed dummy action -> Audit
+```
+
+Bereits implementiert:
+
+- Access Requests erstellen, lesen und listen.
+- Approve/Deny mit statischem Admin Token.
+- Session-Erzeugung bei Approval.
+- Session Details lesen.
+- Session Action Execution über `POST /api/v1/sessions/{sessionId}/actions`.
+- Dummy Capabilities `test.echo`, `test.status.read`, `test.fail`.
+- Audit Events für Request, Approval/Deny, Session und Action-Flows.
+- HTTP-Integrationstests für Happy Path und zentrale Fehlerfälle.
+
+Noch offen für den MVP:
+
+- vollständige lokale Admin-Login-Auth und Web UI.
+- Session revoke/complete.
+- max action count.
+- Audit API/UI.
+- ggf. `test.logs.read` falls für Demo benötigt.
+- erste dokumentierte End-to-End-Demo über Docker Compose.
+
+Details stehen in `docs/current-status.md`.
+
 ## Ziel des MVP
 
 Der MVP soll den generischen Kern von Hermes Gatekeeper beweisen:

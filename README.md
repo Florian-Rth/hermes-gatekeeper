@@ -31,13 +31,36 @@ Der Kern soll generisch bleiben:
 
 ## Aktueller Status
 
-Die Konzeptdokumente sind vorhanden. Eine erste technische Baseline existiert:
+Der Backend-MVP-Kern ist bis einschließlich Session Actions mit Dummy Adapter implementiert und validiert.
 
-- `backend/`: .NET Solution mit ASP.NET-Core/FastEndpoints API und Health-Endpunkt unter `/health`
-- `frontend/`: React/Vite-App mit pnpm-Skripten für Check, Test und Build
-- Docker-Compose-Baseline für lokale Demo-/Dev-Starts mit Backend und statisch ausgeliefertem Frontend
+Aktuell funktioniert backendseitig:
 
-Noch nicht implementiert sind Authentifizierung, Domänenlogik, Genehmigungsflows, Persistenz und Adapter.
+```text
+Access Request -> Approve/Deny -> Session -> Execute typed dummy action -> Audit
+```
+
+Implementiert sind:
+
+- `backend/`: .NET-10-Solution mit ASP.NET Core/FastEndpoints, EF Core, SQLite und Migrations
+- `frontend/`: React/Vite-App als Scaffold mit pnpm-Skripten für Check, Test und Build
+- Docker-Compose-Baseline für lokale Demo-/Dev-Starts
+- Access-Request-API:
+  - `POST /api/v1/access-requests`
+  - `GET /api/v1/access-requests/{id}`
+  - `GET /api/v1/access-requests`
+- Approval-/Deny-API mit statischem Admin-Token:
+  - `POST /api/v1/access-requests/{id}/approve`
+  - `POST /api/v1/access-requests/{id}/deny`
+- Session-API:
+  - `GET /api/v1/sessions/{id}`
+  - `POST /api/v1/sessions/{sessionId}/actions`
+- Dummy Action Adapter mit `test.echo`, `test.status.read` und `test.fail`
+- Audit Events für Request-Erstellung, Approval/Deny, Session-Erzeugung und Action-Entscheidungen/Ausführung
+- HTTP-Integrationstests für die wichtigsten Erfolgs- und Fehlerpfade
+
+Noch nicht implementiert sind vollständige Admin-Login-Auth, Approval-Web-UI, Session Revocation/Complete, max action count, Audit-UI/API und echte Zielsystem-Adapter.
+
+Der detaillierte Projektstand für zukünftige Agents steht in `docs/current-status.md`.
 
 ## Voraussetzungen
 
@@ -114,10 +137,12 @@ Ports der Compose-Baseline:
 
 ## Dokumente
 
+- `docs/current-status.md` — aktueller Projektstand, implementierte Phasen, bekannte Lücken und nächste sinnvolle Schritte
 - `docs/vision.md` — Zielbild, Motivation, Kernprinzipien
 - `docs/architecture.md` — Architekturentwurf, Komponenten, Datenflüsse
 - `docs/interface-model.md` — HTTP API vs. Hermes Toolset, Agent Interface
 - `docs/mvp-scope.md` — erster generischer MVP-Scope
+- `docs/implementation-plan.md` — phasenorientierter Plan; ältere Phasennummern wurden inzwischen teilweise re-geschnitten
 - `docs/decisions.md` — getroffene Entscheidungen und offene Fragen
 - `docs/research-existing-systems.md` — Recherche zu bestehenden ähnlichen Systemen
 

@@ -160,29 +160,32 @@ Freie SSH-Befehle nur optional und stark begrenzt.
 ## API-Skizze
 
 ```text
-POST /api/requests
-GET  /api/requests
-GET  /api/requests/{id}
-POST /api/requests/{id}/approve
-POST /api/requests/{id}/deny
+POST /api/v1/access-requests
+GET  /api/v1/access-requests
+GET  /api/v1/access-requests/{id}
+POST /api/v1/access-requests/{id}/approve
+POST /api/v1/access-requests/{id}/deny
 
-GET  /api/sessions
-GET  /api/sessions/{id}
-POST /api/sessions/{id}/revoke
-POST /api/sessions/{id}/complete
-
-POST /api/sessions/{id}/actions/execute
+GET  /api/v1/sessions/{id}
+POST /api/v1/sessions/{id}/actions
 ```
 
-`actions/execute` nimmt keine freie Shell als Standard, sondern eine typisierte Aktion:
+Noch geplant, aber nicht implementiert:
+
+```text
+GET  /api/v1/sessions
+POST /api/v1/sessions/{id}/revoke
+POST /api/v1/sessions/{id}/complete
+GET  /api/v1/audit-events
+```
+
+`POST /api/v1/sessions/{sessionId}/actions` nimmt im aktuellen Dummy-MVP eine typisierte Capability und optionalen Payload:
 
 ```json
 {
-  "action": "ssh.read_service_logs",
-  "target": "media-vm",
-  "params": {
-    "service": "plex",
-    "lines": 200
+  "capability": "test.echo",
+  "payload": {
+    "message": "hello"
   }
 }
 ```
@@ -238,6 +241,12 @@ Empfehlungen:
 - Hermes VM authentifiziert sich gegen Gatekeeper via mTLS oder festem Client Credential
 - Gatekeeper hält Backend-Credentials zu Zielsystemen, nicht Hermes
 - Session Tokens kurzlebig und widerrufbar
+
+Aktueller Implementierungsstand:
+
+- Approval/Deny ist durch einen statischen Admin-Token geschützt (`X-Gatekeeper-Admin-Token` gegen `GATEKEEPER_ADMIN_TOKEN`).
+- Vollständige Admin-Login-/Cookie-Auth ist noch nicht implementiert.
+- Session Action Execution ist im Dummy-MVP erreichbar, wird aber durch Session-ID, Expiry und Capability-Allowlist begrenzt. Eine stärkere Agent-/Session-Authentifizierung ist später nachzuziehen.
 
 ## Audit Log
 

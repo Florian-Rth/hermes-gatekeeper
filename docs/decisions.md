@@ -117,6 +117,36 @@ Entscheidung: Das Frontend nutzt pnpm als verbindlichen Package Manager.
 
 Konsequenz: Phase 0 erzeugt `pnpm-lock.yaml`, verwendet pnpm in Docker/Validierung und vermeidet gemischte Lockfiles wie `package-lock.json` oder `yarn.lock`.
 
+### 2026-05-23 — Backend-Kern bis Session Actions umgesetzt
+
+Entscheidung/Stand: Der Backend-Kern wurde bis zum vollständigen Dummy-Action-Flow umgesetzt und validiert:
+
+```text
+Access Request -> Approve/Deny -> Session -> Execute typed dummy action -> Audit
+```
+
+Commit: `7625807 feat: add session actions with dummy adapter`
+
+Konsequenz: Zukünftige Arbeit soll nicht mehr den Backend-Grundflow neu planen, sondern auf `docs/current-status.md` aufsetzen. Nächster empfohlener Schritt ist Minimal Web UI oder alternativ Backend-Härtung mit Session revoke/complete, max action count und Audit API.
+
+### 2026-05-23 — Dummy Adapter vor produktiven Adaptern
+
+Entscheidung: Session Actions wurden zunächst nur mit einem Dummy Adapter umgesetzt.
+
+Implementierte Capabilities:
+
+- `test.echo`
+- `test.status.read`
+- `test.fail`
+
+Konsequenz: Keine produktiven HomeLab-, SSH-, Docker-, Proxmox- oder Home-Assistant-Zugriffe wurden eingeführt. Reale Adapter bleiben explizit spätere Phasen.
+
+### 2026-05-23 — Audit-Payloads bleiben bewusst begrenzt
+
+Entscheidung: Action-Audit-Events speichern keine rohen beliebigen Payloads oder vollständigen Outputs, sondern begrenzte Metadaten wie SessionId, AccessRequestId, Capability und Reason.
+
+Konsequenz: Das verringert Risiko, versehentlich Secrets oder große/sensible Outputs im Audit abzulegen. Detailreichere Audit-Outputs müssen später bewusst designt werden.
+
 ## Vorläufige technische Präferenzen
 
 Aktueller Stand:

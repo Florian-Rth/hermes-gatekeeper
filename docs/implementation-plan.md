@@ -1,5 +1,32 @@
 # Hermes Gatekeeper — Multi-Phasen-Implementierungsplan
 
+## Aktueller Implementierungsstand
+
+Stand 2026-05-23: Der tatsächlich umgesetzte Backend-Schnitt ist weiter als die ursprüngliche Phasenreihenfolge in diesem Dokument.
+
+Abgeschlossen und auf `main` gepusht:
+
+- Phase 0 Projektfoundation: `a59bb3e feat: scaffold gatekeeper full-stack foundation`
+- Access Request Domain/Persistenz/API: `b041130 feat: add access request persistence and api`
+- Approval/Deny + Sessions: `5fe72cf feat: add approval flow and sessions`
+- Session Actions + Dummy Adapter: `7625807 feat: add session actions with dummy adapter`
+
+Der aktuelle Backend-Kern kann:
+
+```text
+Access Request -> Approve/Deny -> Session -> Execute typed dummy action -> Audit
+```
+
+Wichtige Abweichung vom ursprünglichen Plan:
+
+- Approval + Sessions wurden backendseitig mit statischem Admin-Token umgesetzt, bevor eine vollständige lokale Admin-Login-UI existiert.
+- Session Actions + Dummy Adapter wurden vor der Minimal Web UI umgesetzt, um den Produktkern früh per Integrationstests zu beweisen.
+- Die ältere Phasennummerierung unten bleibt als strategischer Plan erhalten, ist aber nicht mehr exakt die Umsetzungsreihenfolge.
+
+Für zukünftige Agents ist `docs/current-status.md` die führende Statusquelle. Dieses Dokument bleibt der grobe Roadmap-/Planungsrahmen.
+
+---
+
 ## Ziel
 
 Dieser Plan beschreibt, in welchen Phasen Hermes Gatekeeper vom leeren Repository zu einem brauchbaren, selbsthostbaren MVP und danach zu einem allgemeineren Open-Source-Produkt ausgebaut werden soll.
