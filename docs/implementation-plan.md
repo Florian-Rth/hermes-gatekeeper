@@ -2,7 +2,7 @@
 
 ## Aktueller Implementierungsstand
 
-Stand 2026-05-23: Der tatsächlich umgesetzte Backend-Schnitt ist weiter als die ursprüngliche Phasenreihenfolge in diesem Dokument.
+Stand 2026-05-23: Der tatsächlich umgesetzte Schnitt ist weiter als die ursprüngliche Phasenreihenfolge in diesem Dokument. Dieses Dokument ist weiterhin verbindlich und muss vor jeder weiteren Entwicklungsphase gepflegt werden.
 
 Abgeschlossen und auf `main` gepusht:
 
@@ -10,20 +10,109 @@ Abgeschlossen und auf `main` gepusht:
 - Access Request Domain/Persistenz/API: `b041130 feat: add access request persistence and api`
 - Approval/Deny + Sessions: `5fe72cf feat: add approval flow and sessions`
 - Session Actions + Dummy Adapter: `7625807 feat: add session actions with dummy adapter`
+- Minimal Approval Web UI: `35f2eec feat: add minimal approval web ui`
+- Compose Admin-Token-Korrektur: `ed6cbec fix: pass admin token in compose`
 
 Der aktuelle Backend-Kern kann:
 
 ```text
-Access Request -> Approve/Deny -> Session -> Execute typed dummy action -> Audit
+Access Request -> Approve/Deny in Web UI -> Session -> Execute typed dummy action -> Audit
 ```
 
 Wichtige Abweichung vom ursprünglichen Plan:
 
 - Approval + Sessions wurden backendseitig mit statischem Admin-Token umgesetzt, bevor eine vollständige lokale Admin-Login-UI existiert.
 - Session Actions + Dummy Adapter wurden vor der Minimal Web UI umgesetzt, um den Produktkern früh per Integrationstests zu beweisen.
+- Die Minimal Approval Web UI ist inzwischen umgesetzt und kann Requests listen, Details anzeigen, approve/deny ausführen, Session Summary anzeigen und safe Dummy Actions anstoßen.
 - Die ältere Phasennummerierung unten bleibt als strategischer Plan erhalten, ist aber nicht mehr exakt die Umsetzungsreihenfolge.
 
-Für zukünftige Agents ist `docs/current-status.md` die führende Statusquelle. Dieses Dokument bleibt der grobe Roadmap-/Planungsrahmen.
+Für zukünftige Agents ist `docs/current-status.md` die führende Statusquelle für den Ist-Zustand. Dieses Dokument bleibt der verbindliche Roadmap-/Planungsrahmen und darf nicht ignoriert oder spontan ersetzt werden.
+
+## Plan-Governance
+
+Dieser Plan ist Teil des Entwicklungsprozesses, nicht nur Dokumentation nachträglich. Bei Arbeit an Hermes Gatekeeper gilt:
+
+- Vor jeder Implementierungsphase diesen Plan und `docs/current-status.md` lesen.
+- Keine Phase eigenmächtig überspringen, ersetzen oder „neu sortieren“, nur weil eine andere Reihenfolge kurzfristig attraktiver wirkt.
+- Aufgabenpakete dürfen in eine andere Phase verschoben werden, wenn sie dort kontextuell besser passen oder technisch auf einer anderen Phase basieren.
+- Jede Scope-Verschiebung muss vor der Implementierung dokumentiert werden: Was wird verschoben, wohin, warum, und welche Abhängigkeit entsteht dadurch?
+- Grill-Me/Entscheidungscheck vor der Phase durchführen und Entscheidungen in das passende Phasendokument oder diesen Plan zurückschreiben.
+- Implementierung erfolgt in kleinen, validierbaren Slices über frische Subagents; der Hauptagent bleibt Orchestrator.
+- Nach jeder Phase `docs/current-status.md` und bei Roadmap-/Scope-Änderungen auch dieses Dokument aktualisieren.
+- Der Plan darf angepasst werden; er darf nicht stillschweigend über den Haufen geworfen werden.
+
+## Nächste konkrete Phase — Session Lifecycle und Audit Visibility
+
+Diese Phase fasst die noch offenen, bereits geplanten Sicherheits- und Operability-Anteile aus der ursprünglichen Phase 5, Phase 6 und Phase 7 zusammen. Sie baut auf dem vorhandenen Stand auf:
+
+```text
+Access Request -> Approve/Deny in Web UI -> Session -> Execute typed dummy action -> Audit
+```
+
+### Ziel
+
+Genehmigte Sessions werden widerrufbar, abschließbar, begrenzt und nachvollziehbar. Admins können nicht nur genehmigen, sondern den Lebenszyklus und die Audit-Spur einer Session sehen.
+
+### Ergebnis am Ende der Phase
+
+- Sessions haben klare Lifecycle-Zustände über `Active` hinaus.
+- Sessions können per API revoked und completed werden.
+- Expired Sessions werden zuverlässig erkannt und blockieren Actions.
+- Ein maximales Action-Limit wird persistiert, gezählt und erzwungen.
+- Audit Events sind per API filterbar abrufbar.
+- Die Web UI zeigt Session Lifecycle und Audit Visibility für Request/Session.
+
+### Backend Scope
+
+- `SessionStatus` erweitern:
+  - `Active`
+  - `Completed`
+  - `Revoked`
+  - `Expired`
+- `POST /api/v1/sessions/{id}/revoke`.
+- `POST /api/v1/sessions/{id}/complete`.
+- Action-Zähler und Max-Action-Limit ergänzen.
+- Session Actions blockieren, wenn Session completed, revoked, expired oder action-limit-exceeded ist.
+- Expiry-Handling deterministisch implementieren, z.B. lazy beim Session-/Action-Zugriff.
+- Audit-API ergänzen:
+  - `GET /api/v1/audit-events`
+  - Filter nach `accessRequestId`, `sessionId`, `eventType` wo sinnvoll.
+- Audit Events ergänzen:
+  - `SessionCompleted`
+  - `SessionRevoked`
+  - `SessionExpired`
+  - `ActionCountExceeded`
+
+### Frontend Scope
+
+- Session Summary um Status, Ablaufzeit, Action Count und Lifecycle-Aktionen erweitern.
+- Revoke/Complete-Buttons nur anzeigen/aktivieren, wenn Backend-Zustand sie erlaubt.
+- Audit Events für ausgewählten Request bzw. Session anzeigen.
+- Fehlerzustände menschenlesbar darstellen, z.B. revoked/expired/action limit exceeded.
+
+### Nicht-Ziele
+
+- Keine produktiven Adapter.
+- Keine freie Shell.
+- Keine OIDC/Passkeys/TOTP/mTLS.
+- Keine komplexe Policy DSL.
+- Keine manipulationssichere Audit Hash Chain.
+- Keine HomeLab-/SSH-/Docker-Integration.
+
+### Validierung
+
+- Backend TDD-Slices mit Tests für alle Lifecycle-Übergänge und Deny-Fälle.
+- Integrationstests für revoke, complete, expired, action count limit und Audit Listing.
+- Frontend Tests für Session Lifecycle UI und Audit-Anzeige.
+- `dotnet test backend/Gatekeeper.sln` oder Docker-SDK-Fallback.
+- `cd backend && dotnet csharpier format . && dotnet csharpier check .`.
+- `cd frontend && pnpm check && pnpm test -- --run && pnpm build`.
+- `docker compose config`.
+- `docker compose build`.
+
+### Commit Boundary
+
+Diese Phase endet erst, wenn Backend und Frontend validiert, reviewed, dokumentiert, committed und gepusht sind.
 
 ---
 
