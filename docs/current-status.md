@@ -2,19 +2,19 @@
 
 Last updated: 2026-05-23
 Current branch: `main`
-Latest completed commit: `7625807 feat: add session actions with dummy adapter`
+Latest completed commit: `35f2eec feat: add minimal approval web ui`
 
 ## Executive Summary
 
-Hermes Gatekeeper has a working backend MVP core through Phase 3:
+Hermes Gatekeeper has a working backend MVP core through Phase 3 and a minimal approval web UI through Phase 4:
 
 ```text
 Access Request -> Approve/Deny -> Session -> Execute typed dummy action -> Audit
 ```
 
-The backend is implemented with .NET 10, ASP.NET Core/FastEndpoints, EF Core, SQLite, migrations, and integration tests. The frontend is still a scaffold and has not yet implemented the approval UI.
+The backend is implemented with .NET 10, ASP.NET Core/FastEndpoints, EF Core, SQLite, migrations, and integration tests. The frontend now has a minimal browser dashboard for listing requests, reviewing details, entering the static admin token, approving/denying, viewing the created session summary, and optionally running a dummy session action.
 
-Future agents should treat the backend action loop as implemented and validated. Do not re-plan or rebuild Phases 0-3 unless the repository state contradicts this document.
+Future agents should treat the backend action loop and minimal approval UI as implemented and validated. Do not re-plan or rebuild Phases 0-4 unless the repository state contradicts this document.
 
 ## Implemented and Committed
 
@@ -161,6 +161,51 @@ Final validation for Phase 3:
 
 Note: The host VM did not have `dotnet` installed during Phase 3. Validation was run through the official `mcr.microsoft.com/dotnet/sdk:10.0` Docker image.
 
+### Phase 4 — Minimal Approval Web UI
+
+Commit: `35f2eec feat: add minimal approval web ui`
+
+Implemented:
+
+- Phase plan: `docs/phase-4-minimal-approval-web-ui.md`.
+- Frontend feature module under `frontend/src/features/access-requests`.
+- Zod-validated API boundary and TanStack Query hooks for:
+  - listing access requests.
+  - loading request details.
+  - approving requests with `X-Gatekeeper-Admin-Token`.
+  - denying requests with `X-Gatekeeper-Admin-Token`.
+  - loading session details after approval.
+  - executing an optional dummy action.
+- Admin token input held only in React state. It is not stored in localStorage/sessionStorage.
+- Minimal dashboard UI:
+  - request list with pending focus.
+  - human-readable request details.
+  - approve/deny decision panel with optional comment.
+  - session summary after approval.
+  - optional `test.echo` / `test.status.read` demo action.
+  - loading, empty, warning and error states.
+- Dev/runtime routing:
+  - Vite proxies `/api` and `/health` to `http://localhost:5209`.
+  - Nginx proxies `/api` and `/health` to Compose service `backend:8080`.
+- Tests:
+  - app renders approval dashboard.
+  - dashboard loads requests and details.
+  - approve sends admin token header and can run dummy action.
+
+Validation for Phase 4:
+
+- `pnpm check`: passed.
+- `pnpm test -- --run`: 2 files, 3 tests passed.
+- `pnpm build`: passed.
+- `docker compose config`: passed.
+- `docker compose build frontend`: passed.
+- Spec/UX review: PASS.
+- Frontend quality/security review: APPROVED.
+
+Important current limitation:
+
+- This is not full admin authentication. The UI uses the existing static admin token manually entered by the user.
+
 ## Current API Surface
 
 ### Health
@@ -221,7 +266,6 @@ Session action success response shape:
 These are not bugs in the current phase; they are intentionally deferred scope:
 
 - No full admin login/cookie auth yet.
-- No frontend approval UI yet.
 - No session revoke endpoint yet.
 - No session complete endpoint yet.
 - No max action count tracking yet.
@@ -236,20 +280,25 @@ These are not bugs in the current phase; they are intentionally deferred scope:
 
 ## Recommended Next Phase
 
-Recommended next phase: Minimal Web UI for approval.
+Recommended next phase: Backend hardening for session lifecycle and audit browsing.
 
 Reason:
 
-- The backend now proves the core control loop.
-- The biggest missing human-in-the-loop piece is a usable approval UI.
-- The UI should show pending requests, request details, approve/deny actions, session details, and action/audit status in human-readable form.
+- The minimal UI can approve/deny and show created sessions.
+- The next major product gap is lifecycle control after approval.
+- Revocation, completion, max action count, and audit browsing make sessions safer and more operable.
 
-Alternative backend-hardening phase if UI is postponed:
+Suggested scope:
 
-- Session revoke + complete endpoints.
-- Max action count.
-- Action history endpoint.
-- Audit listing/filter API.
+- `POST /api/v1/sessions/{id}/revoke`.
+- `POST /api/v1/sessions/{id}/complete`.
+- max action count tracking.
+- action history or audit listing/filter API.
+- UI wiring for revoke/complete and audit visibility.
+
+Alternative if backend lifecycle is postponed:
+
+- Full local admin login/cookie auth to replace manual static token entry.
 
 ## Important Agent Instructions
 
@@ -260,6 +309,7 @@ Future agents should:
 3. Do not assume the older phase numbering in `docs/implementation-plan.md` is exact; implementation was intentionally re-scoped:
    - Approval + sessions were completed before full admin login.
    - Session actions + dummy adapter were completed before frontend UI.
+   - Minimal approval web UI is now implemented, but full admin login is still deferred.
 4. Keep all productive-system access behind typed adapters and explicit approvals.
 5. Do not add raw shell or real HomeLab adapters until Florian explicitly chooses that phase.
 6. Keep using integration tests for full HTTP flows, especially security and audit behavior.

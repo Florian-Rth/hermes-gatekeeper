@@ -31,18 +31,18 @@ Der Kern soll generisch bleiben:
 
 ## Aktueller Status
 
-Der Backend-MVP-Kern ist bis einschließlich Session Actions mit Dummy Adapter implementiert und validiert.
+Der Backend-MVP-Kern ist bis einschließlich Session Actions mit Dummy Adapter implementiert und validiert. Zusätzlich existiert eine minimale Approval-Web-UI.
 
-Aktuell funktioniert backendseitig:
+Aktuell funktioniert:
 
 ```text
-Access Request -> Approve/Deny -> Session -> Execute typed dummy action -> Audit
+Access Request -> Approve/Deny in Web UI -> Session -> Execute typed dummy action -> Audit
 ```
 
 Implementiert sind:
 
 - `backend/`: .NET-10-Solution mit ASP.NET Core/FastEndpoints, EF Core, SQLite und Migrations
-- `frontend/`: React/Vite-App als Scaffold mit pnpm-Skripten für Check, Test und Build
+- `frontend/`: React/Vite-App mit minimalem Approval-Dashboard, pnpm-Skripten für Check, Test und Build
 - Docker-Compose-Baseline für lokale Demo-/Dev-Starts
 - Access-Request-API:
   - `POST /api/v1/access-requests`
@@ -56,9 +56,13 @@ Implementiert sind:
   - `POST /api/v1/sessions/{sessionId}/actions`
 - Dummy Action Adapter mit `test.echo`, `test.status.read` und `test.fail`
 - Audit Events für Request-Erstellung, Approval/Deny, Session-Erzeugung und Action-Entscheidungen/Ausführung
-- HTTP-Integrationstests für die wichtigsten Erfolgs- und Fehlerpfade
+- Minimale Approval-Web-UI:
+  - Requests listen und Details menschenlesbar anzeigen
+  - Admin Token manuell eingeben, ohne Persistenz im Browser Storage
+  - Approve/Deny mit Kommentar
+  - Session Summary und optionale Dummy Action anzeigen
 
-Noch nicht implementiert sind vollständige Admin-Login-Auth, Approval-Web-UI, Session Revocation/Complete, max action count, Audit-UI/API und echte Zielsystem-Adapter.
+Noch nicht implementiert sind vollständige Admin-Login-Auth, Session Revocation/Complete, max action count, Audit-UI/API und echte Zielsystem-Adapter.
 
 Der detaillierte Projektstand für zukünftige Agents steht in `docs/current-status.md`.
 
