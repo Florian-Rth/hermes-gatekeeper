@@ -59,11 +59,16 @@ public sealed class GatekeeperDbContext : DbContext
             entity.ToTable("Sessions");
             entity.HasKey(session => session.Id);
             entity.Property(session => session.AccessRequestId).IsRequired();
-            entity.Property(session => session.Status).IsRequired();
+            entity.Property(session => session.Status).IsRequired().IsConcurrencyToken();
             entity.Property(session => session.AllowedTargetsJson).IsRequired();
             entity.Property(session => session.AllowedCapabilitiesJson).IsRequired();
             entity.Property(session => session.CreatedAt).IsRequired();
             entity.Property(session => session.ExpiresAt).IsRequired();
+            entity.Property(session => session.ActionCount).IsRequired();
+            entity.Property(session => session.MaxActionCount).IsRequired();
+            entity.Property(session => session.CompletedAt);
+            entity.Property(session => session.RevokedAt);
+            entity.Property(session => session.ExpiredAt);
             entity.HasIndex(session => session.AccessRequestId).IsUnique();
             entity.HasIndex(session => session.Status);
             entity.HasIndex(session => session.ExpiresAt);

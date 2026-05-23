@@ -1,3 +1,4 @@
+using Gatekeeper.Application.AuditEvents;
 using Gatekeeper.Application.Common;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -10,6 +11,7 @@ public static class DependencyInjection
         ArgumentNullException.ThrowIfNull(services);
 
         services.AddSingleton<IClock, SystemClock>();
+        services.AddScoped<IAuditEventQueryService, AuditEventQueryService>();
 
         return services;
     }

@@ -1,4 +1,5 @@
 using Gatekeeper.Application.AccessRequests;
+using Gatekeeper.Application.AuditEvents;
 using Gatekeeper.Application.Sessions;
 using Gatekeeper.Infrastructure.Persistence;
 using Gatekeeper.Infrastructure.Persistence.Repositories;
@@ -13,6 +14,7 @@ namespace Gatekeeper.Infrastructure;
 public static class DependencyInjection
 {
     private const string DefaultSqliteDataPath = "/data/gatekeeper.db";
+    private const string SessionMaxActionCountVariable = "GATEKEEPER_SESSION_MAX_ACTION_COUNT";
 
     public static IServiceCollection AddInfrastructure(
         this IServiceCollection services,
@@ -31,10 +33,17 @@ public static class DependencyInjection
         services.AddScoped<IAccessRequestUnitOfWork, EfAccessRequestUnitOfWork>();
         services.AddScoped<ISessionActionUnitOfWork, EfSessionActionUnitOfWork>();
         services.AddScoped<IAuditEventRepository, EfAuditEventRepository>();
+        services.AddScoped<IAuditEventQueryRepository, EfAuditEventRepository>();
         services.AddScoped<IAccessRequestService, AccessRequestService>();
         services.AddScoped<ISessionService, SessionService>();
         services.AddScoped<ISessionActionService, SessionActionService>();
         services.AddScoped<ISessionActionAdapter, DummySessionActionAdapter>();
+        services.AddSingleton(
+            SessionLifecycleOptions.FromConfiguredValue(
+                configuration[SessionMaxActionCountVariable]
+                    ?? Environment.GetEnvironmentVariable(SessionMaxActionCountVariable)
+            )
+        );
 
         return services;
     }

@@ -5,6 +5,17 @@ namespace Gatekeeper.Infrastructure.SessionActions;
 
 public sealed class DummySessionActionAdapter : ISessionActionAdapter
 {
+    public SessionActionValidationResult Validate(string capability, JsonElement? payload)
+    {
+        return capability switch
+        {
+            "test.echo" => ValidateEcho(payload),
+            "test.status.read" => ValidateStatusRead(payload),
+            "test.fail" => SessionActionValidationResult.Success(),
+            _ => SessionActionValidationResult.InvalidPayload("Unsupported dummy capability."),
+        };
+    }
+
     public Task<SessionActionAdapterResult> ExecuteAsync(
         string capability,
         JsonElement? payload,
@@ -26,25 +37,13 @@ public sealed class DummySessionActionAdapter : ISessionActionAdapter
 
     private static SessionActionAdapterResult ExecuteEcho(JsonElement? payload)
     {
-        if (payload is null || payload.Value.ValueKind != JsonValueKind.Object)
+        SessionActionValidationResult validation = ValidateEcho(payload);
+        if (!validation.Succeeded)
         {
-            return SessionActionAdapterResult.InvalidPayload(
-                "test.echo payload must be an object with a message string."
-            );
+            return SessionActionAdapterResult.InvalidPayload(validation.Error!);
         }
 
-        if (!payload.Value.TryGetProperty("message", out JsonElement messageElement))
-        {
-            return SessionActionAdapterResult.InvalidPayload(
-                "test.echo payload must include a message string."
-            );
-        }
-
-        if (messageElement.ValueKind != JsonValueKind.String)
-        {
-            return SessionActionAdapterResult.InvalidPayload("test.echo message must be a string.");
-        }
-
+        JsonElement messageElement = payload!.Value.GetProperty("message");
         string? message = messageElement.GetString();
         if (message is null)
         {
@@ -57,15 +56,52 @@ public sealed class DummySessionActionAdapter : ISessionActionAdapter
 
     private static SessionActionAdapterResult ExecuteStatusRead(JsonElement? payload)
     {
-        if (payload is not null && !IsEmptyObject(payload.Value))
+        SessionActionValidationResult validation = ValidateStatusRead(payload);
+        if (!validation.Succeeded)
         {
-            return SessionActionAdapterResult.InvalidPayload(
-                "test.status.read payload must be omitted or an empty object."
-            );
+            return SessionActionAdapterResult.InvalidPayload(validation.Error!);
         }
 
         JsonElement result = JsonSerializer.SerializeToElement(new { status = "ok" });
         return SessionActionAdapterResult.Success(result);
+    }
+
+    private static SessionActionValidationResult ValidateEcho(JsonElement? payload)
+    {
+        if (payload is null || payload.Value.ValueKind != JsonValueKind.Object)
+        {
+            return SessionActionValidationResult.InvalidPayload(
+                "test.echo payload must be an object with a message string."
+            );
+        }
+
+        if (!payload.Value.TryGetProperty("message", out JsonElement messageElement))
+        {
+            return SessionActionValidationResult.InvalidPayload(
+                "test.echo payload must include a message string."
+            );
+        }
+
+        if (messageElement.ValueKind != JsonValueKind.String || messageElement.GetString() is null)
+        {
+            return SessionActionValidationResult.InvalidPayload(
+                "test.echo message must be a string."
+            );
+        }
+
+        return SessionActionValidationResult.Success();
+    }
+
+    private static SessionActionValidationResult ValidateStatusRead(JsonElement? payload)
+    {
+        if (payload is not null && !IsEmptyObject(payload.Value))
+        {
+            return SessionActionValidationResult.InvalidPayload(
+                "test.status.read payload must be omitted or an empty object."
+            );
+        }
+
+        return SessionActionValidationResult.Success();
     }
 
     private static bool IsEmptyObject(JsonElement payload)

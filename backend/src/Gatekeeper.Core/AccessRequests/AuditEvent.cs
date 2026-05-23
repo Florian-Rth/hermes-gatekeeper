@@ -69,6 +69,33 @@ public sealed class AuditEvent
         return CreateForAggregate("SessionCreated", sessionId, occurredAt, payloadJson);
     }
 
+    public static AuditEvent CreateSessionCompleted(
+        Guid sessionId,
+        DateTimeOffset occurredAt,
+        string payloadJson
+    )
+    {
+        return CreateForAggregate("SessionCompleted", sessionId, occurredAt, payloadJson);
+    }
+
+    public static AuditEvent CreateSessionRevoked(
+        Guid sessionId,
+        DateTimeOffset occurredAt,
+        string payloadJson
+    )
+    {
+        return CreateForAggregate("SessionRevoked", sessionId, occurredAt, payloadJson);
+    }
+
+    public static AuditEvent CreateSessionExpired(
+        Guid sessionId,
+        DateTimeOffset occurredAt,
+        string payloadJson
+    )
+    {
+        return CreateForAggregate("SessionExpired", sessionId, occurredAt, payloadJson);
+    }
+
     public static AuditEvent CreateSessionActionRequested(
         Guid sessionId,
         DateTimeOffset occurredAt,
@@ -112,6 +139,15 @@ public sealed class AuditEvent
     )
     {
         return CreateForAggregate("SessionActionFailed", sessionId, occurredAt, payloadJson);
+    }
+
+    public static AuditEvent CreateActionCountExceeded(
+        Guid sessionId,
+        DateTimeOffset occurredAt,
+        string payloadJson
+    )
+    {
+        return CreateForAggregate("ActionCountExceeded", sessionId, occurredAt, payloadJson);
     }
 
     public static AuditEvent Load(

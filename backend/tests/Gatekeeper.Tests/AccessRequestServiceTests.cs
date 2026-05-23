@@ -133,6 +133,8 @@ public sealed class AccessRequestServiceTests
         Assert.Equal(["logs:read"], result.Session.AllowedCapabilities);
         Assert.Equal(now, result.Session.CreatedAt);
         Assert.Equal(now.AddMinutes(30), result.Session.ExpiresAt);
+        Assert.Equal(0, result.Session.ActionCount);
+        Assert.Equal(10, result.Session.MaxActionCount);
         var persistedRequest = Assert.Single(accessRequests.Items);
         Assert.Equal(AccessRequestStatus.Approved, persistedRequest.Status);
         var persistedSession = Assert.Single(sessions.Items);
@@ -184,6 +186,71 @@ public sealed class AccessRequestServiceTests
         Assert.Equal(request.Id, auditEvent.AggregateId);
         Assert.Contains("too risky", auditEvent.PayloadJson);
         Assert.Equal(1, unitOfWork.SaveChangesCount);
+    }
+
+    [Fact]
+    public async Task ApproveAsync_Should_CopyConfiguredMaxActionCountToCreatedSession_When_Configured()
+    {
+        var now = new DateTimeOffset(2026, 5, 22, 12, 0, 0, TimeSpan.Zero);
+        var service = CreateService(
+            out var accessRequests,
+            out var sessions,
+            out _,
+            out _,
+            now,
+            new SessionLifecycleOptions(25)
+        );
+        var request = CreateAccessRequest(now.AddMinutes(-5));
+        accessRequests.Items.Add(request);
+
+        var result = await service.ApproveAsync(
+            new ApproveAccessRequestCommand(request.Id, null),
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.True(result.Success);
+        Assert.NotNull(result.Session);
+        Assert.Equal(25, result.Session.MaxActionCount);
+        Session persistedSession = Assert.Single(sessions.Items);
+        Assert.Equal(25, persistedSession.MaxActionCount);
+    }
+
+    [Fact]
+    public void FromConfiguredValue_Should_UseConfiguredMaxActionCount_When_ValueIsInRange()
+    {
+        SessionLifecycleOptions options = SessionLifecycleOptions.FromConfiguredValue("25");
+
+        Assert.Equal(25, options.MaxActionCount);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void FromConfiguredValue_Should_FallBackToDefault_When_ValueIsMissingOrEmpty(
+        string? configuredValue
+    )
+    {
+        SessionLifecycleOptions options = SessionLifecycleOptions.FromConfiguredValue(
+            configuredValue
+        );
+
+        Assert.Equal(10, options.MaxActionCount);
+    }
+
+    [Theory]
+    [InlineData("not-a-number")]
+    [InlineData("0")]
+    [InlineData("-1")]
+    [InlineData("101")]
+    [InlineData("2147483647")]
+    public void FromConfiguredValue_Should_RejectConfiguredMaxActionCount_When_ValueIsInvalid(
+        string configuredValue
+    )
+    {
+        Assert.ThrowsAny<Exception>(() =>
+            SessionLifecycleOptions.FromConfiguredValue(configuredValue)
+        );
     }
 
     [Fact]
@@ -322,7 +389,8 @@ public sealed class AccessRequestServiceTests
         out FakeSessionRepository sessions,
         out FakeAuditEventRepository auditEvents,
         out FakeAccessRequestUnitOfWork unitOfWork,
-        DateTimeOffset now
+        DateTimeOffset now,
+        SessionLifecycleOptions? sessionLifecycleOptions = null
     )
     {
         accessRequests = new FakeAccessRequestRepository();
@@ -334,7 +402,8 @@ public sealed class AccessRequestServiceTests
             sessions,
             unitOfWork,
             auditEvents,
-            new FixedClock(now)
+            new FixedClock(now),
+            sessionLifecycleOptions
         );
     }
 
@@ -383,6 +452,17 @@ public sealed class AccessRequestServiceTests
         public Task<Session?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
         {
             return Task.FromResult(Items.SingleOrDefault(item => item.Id == id));
+        }
+
+        public Task UpdateAsync(Session session, CancellationToken cancellationToken)
+        {
+            int index = Items.FindIndex(item => item.Id == session.Id);
+            if (index >= 0)
+            {
+                Items[index] = session;
+            }
+
+            return Task.CompletedTask;
         }
     }
 

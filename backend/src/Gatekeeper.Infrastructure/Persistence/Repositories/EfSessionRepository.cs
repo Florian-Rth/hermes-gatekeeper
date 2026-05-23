@@ -30,6 +30,31 @@ public sealed class EfSessionRepository : ISessionRepository
         return entity is null ? null : ToDomain(entity);
     }
 
+    public Task UpdateAsync(Session session, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+
+        SessionEntity entity = ToEntity(session);
+        Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<SessionEntity> entry =
+            _dbContext.Sessions.Attach(entity);
+        entry.Property(updatedSession => updatedSession.Status).IsModified = true;
+        entry.Property(updatedSession => updatedSession.CompletedAt).IsModified = true;
+        entry.Property(updatedSession => updatedSession.RevokedAt).IsModified = true;
+        entry.Property(updatedSession => updatedSession.ExpiredAt).IsModified = true;
+        if (
+            session.Status
+            is SessionStatus.Completed
+                or SessionStatus.Revoked
+                or SessionStatus.Expired
+        )
+        {
+            entry.Property(updatedSession => updatedSession.Status).OriginalValue =
+                SessionStatus.Active;
+        }
+
+        return Task.CompletedTask;
+    }
+
     private static SessionEntity ToEntity(Session session)
     {
         return new SessionEntity
@@ -43,6 +68,11 @@ public sealed class EfSessionRepository : ISessionRepository
             ),
             CreatedAt = session.CreatedAt,
             ExpiresAt = session.ExpiresAt,
+            ActionCount = session.ActionCount,
+            MaxActionCount = session.MaxActionCount,
+            CompletedAt = session.CompletedAt,
+            RevokedAt = session.RevokedAt,
+            ExpiredAt = session.ExpiredAt,
         };
     }
 
@@ -55,7 +85,12 @@ public sealed class EfSessionRepository : ISessionRepository
             JsonColumnSerializer.DeserializeStringList(entity.AllowedTargetsJson),
             JsonColumnSerializer.DeserializeStringList(entity.AllowedCapabilitiesJson),
             entity.CreatedAt,
-            entity.ExpiresAt
+            entity.ExpiresAt,
+            entity.ActionCount,
+            entity.MaxActionCount,
+            entity.CompletedAt,
+            entity.RevokedAt,
+            entity.ExpiredAt
         );
     }
 }

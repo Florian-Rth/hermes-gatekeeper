@@ -13,13 +13,15 @@ public sealed class AccessRequestService : IAccessRequestService
     private readonly IAccessRequestUnitOfWork _unitOfWork;
     private readonly IAuditEventRepository _auditEvents;
     private readonly IClock _clock;
+    private readonly SessionLifecycleOptions _sessionLifecycleOptions;
 
     public AccessRequestService(
         IAccessRequestRepository accessRequests,
         ISessionRepository sessions,
         IAccessRequestUnitOfWork unitOfWork,
         IAuditEventRepository auditEvents,
-        IClock clock
+        IClock clock,
+        SessionLifecycleOptions? sessionLifecycleOptions = null
     )
     {
         _accessRequests = accessRequests;
@@ -27,6 +29,7 @@ public sealed class AccessRequestService : IAccessRequestService
         _unitOfWork = unitOfWork;
         _auditEvents = auditEvents;
         _clock = clock;
+        _sessionLifecycleOptions = sessionLifecycleOptions ?? SessionLifecycleOptions.Default;
     }
 
     public async Task<AccessRequestDetails> CreateAsync(
@@ -87,7 +90,11 @@ public sealed class AccessRequestService : IAccessRequestService
 
         var now = _clock.UtcNow;
         var approved = accessRequest.Approve(now);
-        var session = Session.CreateFromApprovedAccessRequest(approved, now);
+        var session = Session.CreateFromApprovedAccessRequest(
+            approved,
+            now,
+            _sessionLifecycleOptions.MaxActionCount
+        );
 
         await _accessRequests.UpdateAsync(approved, cancellationToken);
         await _sessions.AddAsync(session, cancellationToken);
@@ -219,7 +226,12 @@ public sealed class AccessRequestService : IAccessRequestService
             session.AllowedTargets,
             session.AllowedCapabilities,
             session.CreatedAt,
-            session.ExpiresAt
+            session.ExpiresAt,
+            session.ActionCount,
+            session.MaxActionCount,
+            session.CompletedAt,
+            session.RevokedAt,
+            session.ExpiredAt
         );
     }
 

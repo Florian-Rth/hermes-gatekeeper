@@ -17,4 +17,14 @@ public sealed class SessionEntity
     public DateTimeOffset CreatedAt { get; set; }
 
     public DateTimeOffset ExpiresAt { get; set; }
+
+    public int ActionCount { get; set; }
+
+    public int MaxActionCount { get; set; }
+
+    public DateTimeOffset? CompletedAt { get; set; }
+
+    public DateTimeOffset? RevokedAt { get; set; }
+
+    public DateTimeOffset? ExpiredAt { get; set; }
 }

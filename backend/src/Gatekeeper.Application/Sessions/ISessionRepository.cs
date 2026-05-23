@@ -7,4 +7,6 @@ public interface ISessionRepository
     Task AddAsync(Session session, CancellationToken cancellationToken);
 
     Task<Session?> GetByIdAsync(Guid id, CancellationToken cancellationToken);
+
+    Task UpdateAsync(Session session, CancellationToken cancellationToken);
 }

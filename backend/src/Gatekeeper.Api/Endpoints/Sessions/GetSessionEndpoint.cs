@@ -1,4 +1,5 @@
 using FastEndpoints;
+using FluentValidation;
 using Gatekeeper.Application.Sessions;
 using Gatekeeper.Core.Sessions;
 
@@ -37,6 +38,11 @@ public sealed class GetSessionEndpoint : Endpoint<GetSessionRequest, GetSessionR
             AllowedCapabilities = session.AllowedCapabilities,
             CreatedAt = session.CreatedAt,
             ExpiresAt = session.ExpiresAt,
+            ActionCount = session.ActionCount,
+            MaxActionCount = session.MaxActionCount,
+            CompletedAt = session.CompletedAt,
+            RevokedAt = session.RevokedAt,
+            ExpiredAt = session.ExpiredAt,
         };
         await Send.OkAsync(response, ct);
     }
@@ -45,6 +51,14 @@ public sealed class GetSessionEndpoint : Endpoint<GetSessionRequest, GetSessionR
 public sealed class GetSessionRequest
 {
     public Guid Id { get; set; }
+}
+
+public sealed class GetSessionValidator : Validator<GetSessionRequest>
+{
+    public GetSessionValidator()
+    {
+        RuleFor(request => request.Id).NotEmpty();
+    }
 }
 
 public sealed class GetSessionResponse
@@ -62,4 +76,14 @@ public sealed class GetSessionResponse
     public DateTimeOffset CreatedAt { get; set; }
 
     public DateTimeOffset ExpiresAt { get; set; }
+
+    public int ActionCount { get; set; }
+
+    public int MaxActionCount { get; set; }
+
+    public DateTimeOffset? CompletedAt { get; set; }
+
+    public DateTimeOffset? RevokedAt { get; set; }
+
+    public DateTimeOffset? ExpiredAt { get; set; }
 }

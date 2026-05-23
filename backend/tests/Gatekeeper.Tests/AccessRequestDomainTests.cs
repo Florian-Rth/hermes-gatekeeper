@@ -194,6 +194,102 @@ public sealed class AccessRequestDomainTests
         );
     }
 
+    [Theory]
+    [InlineData(-1, 10)]
+    [InlineData(0, 0)]
+    [InlineData(0, 101)]
+    [InlineData(11, 10)]
+    public void Load_Should_RejectSession_When_ActionBudgetIsInvalid(
+        int actionCount,
+        int maxActionCount
+    )
+    {
+        var now = new DateTimeOffset(2026, 5, 22, 12, 0, 0, TimeSpan.Zero);
+
+        Assert.ThrowsAny<Exception>(() =>
+            LoadSession(now, SessionStatus.Active, actionCount, maxActionCount)
+        );
+    }
+
+    [Fact]
+    public void Load_Should_AcceptActiveSession_When_LifecycleTimestampsAreNull()
+    {
+        var now = new DateTimeOffset(2026, 5, 22, 12, 0, 0, TimeSpan.Zero);
+
+        var session = LoadSession(now, SessionStatus.Active, actionCount: 3, maxActionCount: 10);
+
+        Assert.Equal(SessionStatus.Active, session.Status);
+        Assert.Equal(3, session.ActionCount);
+        Assert.Equal(10, session.MaxActionCount);
+        Assert.Null(session.CompletedAt);
+        Assert.Null(session.RevokedAt);
+        Assert.Null(session.ExpiredAt);
+    }
+
+    [Theory]
+    [InlineData(SessionStatus.Completed)]
+    [InlineData(SessionStatus.Revoked)]
+    [InlineData(SessionStatus.Expired)]
+    public void Load_Should_AcceptTerminalSession_When_MatchingLifecycleTimestampIsSet(
+        SessionStatus status
+    )
+    {
+        var now = new DateTimeOffset(2026, 5, 22, 12, 0, 0, TimeSpan.Zero);
+        DateTimeOffset? completedAt = status == SessionStatus.Completed ? now.AddMinutes(1) : null;
+        DateTimeOffset? revokedAt = status == SessionStatus.Revoked ? now.AddMinutes(1) : null;
+        DateTimeOffset? expiredAt = status == SessionStatus.Expired ? now.AddMinutes(1) : null;
+
+        var session = LoadSession(
+            now,
+            status,
+            actionCount: 1,
+            maxActionCount: 10,
+            completedAt: completedAt,
+            revokedAt: revokedAt,
+            expiredAt: expiredAt
+        );
+
+        Assert.Equal(status, session.Status);
+        Assert.Equal(completedAt, session.CompletedAt);
+        Assert.Equal(revokedAt, session.RevokedAt);
+        Assert.Equal(expiredAt, session.ExpiredAt);
+    }
+
+    [Theory]
+    [InlineData(SessionStatus.Active, true, false, false)]
+    [InlineData(SessionStatus.Active, false, true, false)]
+    [InlineData(SessionStatus.Active, false, false, true)]
+    [InlineData(SessionStatus.Completed, false, false, false)]
+    [InlineData(SessionStatus.Completed, true, true, false)]
+    [InlineData(SessionStatus.Completed, true, false, true)]
+    [InlineData(SessionStatus.Revoked, false, false, false)]
+    [InlineData(SessionStatus.Revoked, true, true, false)]
+    [InlineData(SessionStatus.Revoked, false, true, true)]
+    [InlineData(SessionStatus.Expired, false, false, false)]
+    [InlineData(SessionStatus.Expired, true, false, true)]
+    [InlineData(SessionStatus.Expired, false, true, true)]
+    public void Load_Should_RejectSession_When_StatusAndLifecycleTimestampsAreInconsistent(
+        SessionStatus status,
+        bool hasCompletedAt,
+        bool hasRevokedAt,
+        bool hasExpiredAt
+    )
+    {
+        var now = new DateTimeOffset(2026, 5, 22, 12, 0, 0, TimeSpan.Zero);
+
+        Assert.Throws<ArgumentException>(() =>
+            LoadSession(
+                now,
+                status,
+                actionCount: 0,
+                maxActionCount: 10,
+                completedAt: hasCompletedAt ? now.AddMinutes(1) : null,
+                revokedAt: hasRevokedAt ? now.AddMinutes(2) : null,
+                expiredAt: hasExpiredAt ? now.AddMinutes(3) : null
+            )
+        );
+    }
+
     [Fact]
     public void CreateAccessRequestCreated_CreatesAuditEvent()
     {
@@ -270,6 +366,32 @@ public sealed class AccessRequestDomainTests
             ["restart service"],
             new Dictionary<string, string> { ["ticket"] = "INC-123" },
             now
+        );
+    }
+
+    private static Session LoadSession(
+        DateTimeOffset now,
+        SessionStatus status,
+        int actionCount,
+        int maxActionCount,
+        DateTimeOffset? completedAt = null,
+        DateTimeOffset? revokedAt = null,
+        DateTimeOffset? expiredAt = null
+    )
+    {
+        return Session.Load(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            status,
+            ["prod-api"],
+            ["logs:read"],
+            now,
+            now.AddMinutes(30),
+            actionCount,
+            maxActionCount,
+            completedAt,
+            revokedAt,
+            expiredAt
         );
     }
 }

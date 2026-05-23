@@ -52,7 +52,7 @@ This is a backend-only phase. Frontend wiring for lifecycle controls and audit v
   - `MaxActionCount`
   - lifecycle timestamp fields where useful, e.g. `CompletedAt`, `RevokedAt`, `ExpiredAt`.
 - Add config support for `GATEKEEPER_SESSION_MAX_ACTION_COUNT` with fallback `10`.
-- Treat invalid or non-positive config values defensively, falling back to `10`.
+- Treat missing or empty config values as fallback `10`; reject non-numeric, non-positive, or out-of-range values fail-fast.
 - Copy `MaxActionCount` into the session when approval creates it.
 - Update EF entity mapping, migration, and model snapshot.
 

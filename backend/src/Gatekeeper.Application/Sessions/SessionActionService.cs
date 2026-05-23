@@ -62,8 +62,35 @@ public sealed class SessionActionService : ISessionActionService
             cancellationToken
         );
 
-        if (session.Status != SessionStatus.Active || session.ExpiresAt <= now)
+        if (session.Status != SessionStatus.Active)
         {
+            string reason = "Session is expired or inactive.";
+            await AddAuditAsync(
+                AuditEvent.CreateSessionActionDenied(
+                    session.Id,
+                    now,
+                    JsonSerializer.Serialize(ToAuditPayload(session, command.Capability, reason))
+                ),
+                cancellationToken
+            );
+            await SaveChangesAsync(cancellationToken);
+            return SessionActionResult.Conflicted(reason);
+        }
+
+        if (session.ExpiresAt <= now)
+        {
+            session = session.Expire(now);
+            await _sessions.UpdateAsync(session, cancellationToken);
+            await AddAuditAsync(
+                AuditEvent.CreateSessionExpired(
+                    session.Id,
+                    now,
+                    JsonSerializer.Serialize(
+                        ToAuditPayload(session, command.Capability, "Session expired.")
+                    )
+                ),
+                cancellationToken
+            );
             string reason = "Session is expired or inactive.";
             await AddAuditAsync(
                 AuditEvent.CreateSessionActionDenied(
@@ -92,14 +119,73 @@ public sealed class SessionActionService : ISessionActionService
             return SessionActionResult.Forbidden(reason);
         }
 
-        await AddAuditAsync(
-            AuditEvent.CreateSessionActionAllowed(
-                session.Id,
-                now,
-                JsonSerializer.Serialize(ToAuditPayload(session, command.Capability, null))
-            ),
+        SessionActionValidationResult validation = _adapter.Validate(
+            command.Capability,
+            command.Payload
+        );
+        if (!validation.Succeeded)
+        {
+            string reason = validation.Error ?? "Invalid action payload.";
+            await AddAuditAsync(
+                AuditEvent.CreateSessionActionFailed(
+                    session.Id,
+                    now,
+                    JsonSerializer.Serialize(ToAuditPayload(session, command.Capability, reason))
+                ),
+                cancellationToken
+            );
+            await SaveChangesAsync(cancellationToken);
+            return SessionActionResult.ValidationFailed(reason);
+        }
+
+        AuditEvent allowedAuditEvent = AuditEvent.CreateSessionActionAllowed(
+            session.Id,
+            now,
+            JsonSerializer.Serialize(ToAuditPayload(session, command.Capability, null))
+        );
+
+        bool reserved = await _unitOfWork.TryReserveActionSlotAndSaveChangesAsync(
+            session.Id,
+            now,
+            allowedAuditEvent,
             cancellationToken
         );
+        if (!reserved)
+        {
+            Session? latest = await _sessions.GetByIdAsync(session.Id, cancellationToken);
+            if (
+                latest is not null
+                && latest.Status == SessionStatus.Active
+                && latest.ActionCount >= latest.MaxActionCount
+            )
+            {
+                string reason = "Session action count limit exceeded.";
+                await AddAuditAsync(
+                    AuditEvent.CreateActionCountExceeded(
+                        session.Id,
+                        now,
+                        JsonSerializer.Serialize(ToAuditPayload(latest, command.Capability, reason))
+                    ),
+                    cancellationToken
+                );
+                await SaveChangesAsync(cancellationToken);
+                return SessionActionResult.Conflicted(reason);
+            }
+
+            string inactiveReason = "Session is expired or inactive.";
+            await AddAuditAsync(
+                AuditEvent.CreateSessionActionDenied(
+                    session.Id,
+                    now,
+                    JsonSerializer.Serialize(
+                        ToAuditPayload(latest ?? session, command.Capability, inactiveReason)
+                    )
+                ),
+                cancellationToken
+            );
+            await SaveChangesAsync(cancellationToken);
+            return SessionActionResult.Conflicted(inactiveReason);
+        }
 
         SessionActionAdapterResult adapterResult = await _adapter.ExecuteAsync(
             command.Capability,

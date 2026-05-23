@@ -11,7 +11,12 @@ public sealed class SessionDetails
         IReadOnlyList<string> allowedTargets,
         IReadOnlyList<string> allowedCapabilities,
         DateTimeOffset createdAt,
-        DateTimeOffset expiresAt
+        DateTimeOffset expiresAt,
+        int actionCount,
+        int maxActionCount,
+        DateTimeOffset? completedAt,
+        DateTimeOffset? revokedAt,
+        DateTimeOffset? expiredAt
     )
     {
         Id = id;
@@ -21,6 +26,11 @@ public sealed class SessionDetails
         AllowedCapabilities = allowedCapabilities;
         CreatedAt = createdAt;
         ExpiresAt = expiresAt;
+        ActionCount = actionCount;
+        MaxActionCount = maxActionCount;
+        CompletedAt = completedAt;
+        RevokedAt = revokedAt;
+        ExpiredAt = expiredAt;
     }
 
     public Guid Id { get; }
@@ -36,4 +46,14 @@ public sealed class SessionDetails
     public DateTimeOffset CreatedAt { get; }
 
     public DateTimeOffset ExpiresAt { get; }
+
+    public int ActionCount { get; }
+
+    public int MaxActionCount { get; }
+
+    public DateTimeOffset? CompletedAt { get; }
+
+    public DateTimeOffset? RevokedAt { get; }
+
+    public DateTimeOffset? ExpiredAt { get; }
 }

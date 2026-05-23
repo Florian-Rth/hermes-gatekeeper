@@ -117,11 +117,24 @@ public sealed partial class GatekeeperDbContextModelSnapshot : ModelSnapshot
 
                 entity.Property<string>("AllowedTargetsJson").IsRequired().HasColumnType("TEXT");
 
+                entity.Property<int>("ActionCount").HasColumnType("INTEGER");
+
+                entity.Property<DateTimeOffset?>("CompletedAt").HasColumnType("TEXT");
+
                 entity.Property<DateTimeOffset>("CreatedAt").HasColumnType("TEXT");
+
+                entity.Property<DateTimeOffset?>("ExpiredAt").HasColumnType("TEXT");
 
                 entity.Property<DateTimeOffset>("ExpiresAt").HasColumnType("TEXT");
 
-                entity.Property<SessionStatus>("Status").HasColumnType("INTEGER");
+                entity.Property<int>("MaxActionCount").HasColumnType("INTEGER");
+
+                entity.Property<DateTimeOffset?>("RevokedAt").HasColumnType("TEXT");
+
+                entity
+                    .Property<SessionStatus>("Status")
+                    .IsConcurrencyToken()
+                    .HasColumnType("INTEGER");
 
                 entity.HasKey("Id");
 
