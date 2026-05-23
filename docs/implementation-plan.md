@@ -41,7 +41,7 @@ Dieser Plan ist Teil des Entwicklungsprozesses, nicht nur Dokumentation nachträ
 - Nach jeder Phase `docs/current-status.md` und bei Roadmap-/Scope-Änderungen auch dieses Dokument aktualisieren.
 - Der Plan darf angepasst werden; er darf nicht stillschweigend über den Haufen geworfen werden.
 
-## Nächste konkrete Phase — Session Lifecycle und Audit Visibility
+## Nächste konkrete Phase — Session Lifecycle und Audit Visibility Backend
 
 Diese Phase fasst die noch offenen, bereits geplanten Sicherheits- und Operability-Anteile aus der ursprünglichen Phase 5, Phase 6 und Phase 7 zusammen. Sie baut auf dem vorhandenen Stand auf:
 
@@ -51,7 +51,9 @@ Access Request -> Approve/Deny in Web UI -> Session -> Execute typed dummy actio
 
 ### Ziel
 
-Genehmigte Sessions werden widerrufbar, abschließbar, begrenzt und nachvollziehbar. Admins können nicht nur genehmigen, sondern den Lebenszyklus und die Audit-Spur einer Session sehen.
+Genehmigte Sessions werden widerrufbar, abschließbar, begrenzt und nachvollziehbar. Admins können backendseitig den Lebenszyklus und die Audit-Spur einer Session abfragen. Die UI dafür folgt in einer separaten Frontend-Phase.
+
+Detailplan: `docs/phase-5-session-lifecycle-audit-backend.md`.
 
 ### Ergebnis am Ende der Phase
 
@@ -60,7 +62,7 @@ Genehmigte Sessions werden widerrufbar, abschließbar, begrenzt und nachvollzieh
 - Expired Sessions werden zuverlässig erkannt und blockieren Actions.
 - Ein maximales Action-Limit wird persistiert, gezählt und erzwungen.
 - Audit Events sind per API filterbar abrufbar.
-- Die Web UI zeigt Session Lifecycle und Audit Visibility für Request/Session.
+- Die Backend-API liefert den Vertrag, auf dem eine spätere Frontend-Phase Session Lifecycle und Audit Visibility aufbauen kann.
 
 ### Backend Scope
 
@@ -85,10 +87,27 @@ Genehmigte Sessions werden widerrufbar, abschließbar, begrenzt und nachvollzieh
 
 ### Frontend Scope
 
+Frontend wird bewusst in eine separate Folgephase verschoben, damit Backend und Frontend nicht in einer zu großen Full-stack-Phase vermischt werden.
+
+Die spätere Frontend-Folgephase soll voraussichtlich:
+
 - Session Summary um Status, Ablaufzeit, Action Count und Lifecycle-Aktionen erweitern.
 - Revoke/Complete-Buttons nur anzeigen/aktivieren, wenn Backend-Zustand sie erlaubt.
 - Audit Events für ausgewählten Request bzw. Session anzeigen.
 - Fehlerzustände menschenlesbar darstellen, z.B. revoked/expired/action limit exceeded.
+
+### Entscheidung aus Grill-Me
+
+- Backend und Frontend werden grundsätzlich in separaten Phasen behandelt.
+- Diese konkrete nächste Phase wird Backend-first umgesetzt.
+- Frontend-Wiring für Session Lifecycle und Audit Visibility wird als Folgephase geplant.
+- Session Lifecycle nutzt ein einfaches terminales Zustandsmodell: `Active -> Completed`, `Active -> Revoked`, `Active -> Expired`; `Completed`, `Revoked` und `Expired` sind terminal.
+- Revoke und Audit Listing nutzen den bestehenden Admin-Token-Mechanismus via `X-Gatekeeper-Admin-Token`.
+- Complete führt in dieser Phase keine neue Client-Auth ein; spätere Client-Token-/mTLS-/Request-Signing-Härtung bleibt eine eigene Backend-Security-Phase.
+- Action-Limit-Semantik: Beim Erzeugen einer Session wird ein serverseitiger Default als `MaxActionCount` in die Session kopiert. Gezählt werden nur autorisierte Adapter-Dispatches nach Lifecycle- und Capability-Check, unabhängig davon, ob der Adapter erfolgreich ist oder kontrolliert fehlschlägt. Invalid Requests, forbidden capabilities und bereits completed/revoked/expired Sessions verbrauchen kein Budget. Der Default ist per `GATEKEEPER_SESSION_MAX_ACTION_COUNT` konfigurierbar und fällt auf `10` zurück.
+- Audit-Listing-API: `GET /api/v1/audit-events` als minimaler generischer Admin-Audit-Feed mit `X-Gatekeeper-Admin-Token`, Cursor/Limit-Pagination und einfachen Filtern für `aggregateId`, `eventType`, `from` und `to`. Die Response enthält `id`, `eventType`, `aggregateId`, `occurredAt` und eine begrenzte Details-/Summary-Struktur, aber keinen unkontrollierten Raw-Output.
+- Expiry-Handling: Expiry wird lazy und serverseitig materialisiert. Jeder relevante Session-Service-Zugriff prüft vor der fachlichen Operation, ob eine aktive Session abgelaufen ist. Falls ja, wird sie atomar auf `Expired` gesetzt, ein `SessionExpired` AuditEvent geschrieben und die ursprüngliche Operation auf Basis des terminalen `Expired`-Zustands beantwortet. `GET /api/v1/sessions/{id}` materialisiert Expiry ebenfalls. `complete` und `revoke` auf bereits abgelaufenen Active-Sessions setzen zuerst `Expired` und geben dann `409 Conflict` zurück. `SessionExpired` wird nur beim ersten erfolgreichen Übergang `Active -> Expired` auditiert. Kein Background Worker in dieser Phase.
+- Action-Ausführung nutzt eine atomare Budget-Reservation vor Adapter-Dispatch. Die Reservation erhöht `ActionCount` nur, wenn die Session weiterhin `Active`, nicht expired und unter `MaxActionCount` ist. Erst nach erfolgreicher Reservation wird der Adapter ausgeführt. Bei `ActionCount >= MaxActionCount` erfolgt kein Adapter-Dispatch, kein weiterer Budgetverbrauch, `409 Conflict` und ein `ActionCountExceeded` AuditEvent. Parallele Requests dürfen das Limit nicht überschreiten; terminale Statusübergänge gewinnen gegenüber späteren Actions. Es wird keine lange DB-Transaktion über Adapter-I/O gehalten.
 
 ### Nicht-Ziele
 
@@ -103,16 +122,14 @@ Genehmigte Sessions werden widerrufbar, abschließbar, begrenzt und nachvollzieh
 
 - Backend TDD-Slices mit Tests für alle Lifecycle-Übergänge und Deny-Fälle.
 - Integrationstests für revoke, complete, expired, action count limit und Audit Listing.
-- Frontend Tests für Session Lifecycle UI und Audit-Anzeige.
 - `dotnet test backend/Gatekeeper.sln` oder Docker-SDK-Fallback.
 - `cd backend && dotnet csharpier format . && dotnet csharpier check .`.
-- `cd frontend && pnpm check && pnpm test -- --run && pnpm build`.
 - `docker compose config`.
-- `docker compose build`.
+- `docker compose build backend`.
 
 ### Commit Boundary
 
-Diese Phase endet erst, wenn Backend und Frontend validiert, reviewed, dokumentiert, committed und gepusht sind.
+Diese Phase endet erst, wenn das Backend validiert, reviewed, dokumentiert, committed und gepusht ist.
 
 ---
 
