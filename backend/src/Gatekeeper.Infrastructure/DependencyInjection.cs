@@ -2,6 +2,7 @@ using Gatekeeper.Application.AccessRequests;
 using Gatekeeper.Application.Sessions;
 using Gatekeeper.Infrastructure.Persistence;
 using Gatekeeper.Infrastructure.Persistence.Repositories;
+using Gatekeeper.Infrastructure.SessionActions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -28,9 +29,12 @@ public static class DependencyInjection
         services.AddScoped<IAccessRequestRepository, EfAccessRequestRepository>();
         services.AddScoped<ISessionRepository, EfSessionRepository>();
         services.AddScoped<IAccessRequestUnitOfWork, EfAccessRequestUnitOfWork>();
+        services.AddScoped<ISessionActionUnitOfWork, EfSessionActionUnitOfWork>();
         services.AddScoped<IAuditEventRepository, EfAuditEventRepository>();
         services.AddScoped<IAccessRequestService, AccessRequestService>();
         services.AddScoped<ISessionService, SessionService>();
+        services.AddScoped<ISessionActionService, SessionActionService>();
+        services.AddScoped<ISessionActionAdapter, DummySessionActionAdapter>();
 
         return services;
     }

@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Gatekeeper.Core.Sessions;
 using Gatekeeper.Infrastructure.Persistence;
+using Gatekeeper.Infrastructure.Persistence.Entities;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -432,6 +434,172 @@ public sealed class AccessRequestEndpointTests
     }
 
     [Fact]
+    public async Task Should_ExecuteAllowedDummyAction_When_RequestApprovedSessionAllowsCapability()
+    {
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient();
+        Guid accessRequestId = await CreateAccessRequestAsync(client, ["test.echo"]);
+        Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
+        client.DefaultRequestHeaders.Remove("X-Gatekeeper-Admin-Token");
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/sessions/{sessionId}/actions",
+            new { capability = "test.echo", payload = new { message = "hello" } },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument document = await JsonDocument.ParseAsync(
+            await response.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken),
+            cancellationToken: TestContext.Current.CancellationToken
+        );
+        Assert.Equal(sessionId, document.RootElement.GetProperty("sessionId").GetGuid());
+        Assert.Equal("test.echo", document.RootElement.GetProperty("capability").GetString());
+        Assert.Equal("succeeded", document.RootElement.GetProperty("status").GetString());
+        Assert.Equal(
+            "hello",
+            document.RootElement.GetProperty("result").GetProperty("message").GetString()
+        );
+
+        await AssertAuditEventExistsAsync(factory, accessRequestId, "AccessRequestCreated");
+        await AssertAuditEventExistsAsync(factory, accessRequestId, "AccessRequestApproved");
+        await AssertAuditEventExistsAsync(factory, sessionId, "SessionCreated");
+        await AssertAuditEventExistsAsync(factory, sessionId, "SessionActionRequested");
+        await AssertAuditEventExistsAsync(factory, sessionId, "SessionActionAllowed");
+        await AssertAuditEventExistsAsync(factory, sessionId, "SessionActionExecuted");
+    }
+
+    [Fact]
+    public async Task Should_ExecuteStatusRead_When_RequestApprovedSessionAllowsCapability()
+    {
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient();
+        Guid accessRequestId = await CreateAccessRequestAsync(client, ["test.status.read"]);
+        Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
+        client.DefaultRequestHeaders.Remove("X-Gatekeeper-Admin-Token");
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/sessions/{sessionId}/actions",
+            new { capability = "test.status.read", payload = new { } },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument document = await JsonDocument.ParseAsync(
+            await response.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken),
+            cancellationToken: TestContext.Current.CancellationToken
+        );
+        Assert.Equal(sessionId, document.RootElement.GetProperty("sessionId").GetGuid());
+        Assert.Equal(
+            "test.status.read",
+            document.RootElement.GetProperty("capability").GetString()
+        );
+        Assert.Equal(
+            "ok",
+            document.RootElement.GetProperty("result").GetProperty("status").GetString()
+        );
+    }
+
+    [Fact]
+    public async Task Should_ReturnBadRequest_When_DummyActionPayloadIsInvalid()
+    {
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient();
+        Guid accessRequestId = await CreateAccessRequestAsync(client, ["test.echo"]);
+        Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
+        client.DefaultRequestHeaders.Remove("X-Gatekeeper-Admin-Token");
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/sessions/{sessionId}/actions",
+            new { capability = "test.echo", payload = new { } },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await AssertAuditEventExistsAsync(factory, sessionId, "SessionActionRequested");
+        await AssertAuditEventExistsAsync(factory, sessionId, "SessionActionAllowed");
+        await AssertAuditEventExistsAsync(factory, sessionId, "SessionActionFailed");
+    }
+
+    [Fact]
+    public async Task Should_ReturnForbidden_When_ActionCapabilityIsNotAllowed()
+    {
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient();
+        Guid accessRequestId = await CreateAccessRequestAsync(client, ["test.status.read"]);
+        Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
+        client.DefaultRequestHeaders.Remove("X-Gatekeeper-Admin-Token");
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/sessions/{sessionId}/actions",
+            new { capability = "test.echo", payload = new { message = "hello" } },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        await AssertAuditEventExistsAsync(factory, sessionId, "SessionActionDenied");
+    }
+
+    [Fact]
+    public async Task Should_ReturnNotFound_When_SessionDoesNotExist()
+    {
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient();
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/sessions/{Guid.NewGuid()}/actions",
+            new { capability = "test.echo", payload = new { message = "hello" } },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Should_ReturnConflict_When_SessionIsExpired()
+    {
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient();
+        Guid sessionId = Guid.NewGuid();
+        await SeedExpiredSessionAsync(factory, sessionId);
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/sessions/{sessionId}/actions",
+            new { capability = "test.echo", payload = new { message = "hello" } },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        await AssertAuditEventExistsAsync(factory, sessionId, "SessionActionDenied");
+    }
+
+    [Fact]
+    public async Task Should_ReturnConflict_When_DummyAdapterFails()
+    {
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient();
+        Guid accessRequestId = await CreateAccessRequestAsync(client, ["test.fail"]);
+        Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
+        client.DefaultRequestHeaders.Remove("X-Gatekeeper-Admin-Token");
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/sessions/{sessionId}/actions",
+            new { capability = "test.fail" },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        await AssertAuditEventExistsAsync(factory, sessionId, "SessionActionFailed");
+    }
+
+    [Fact]
     public async Task InvalidPostReturnsBadRequest()
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
@@ -479,9 +647,17 @@ public sealed class AccessRequestEndpointTests
 
     private static async Task<Guid> CreateAccessRequestAsync(HttpClient client)
     {
+        return await CreateAccessRequestAsync(client, ["read_logs"]);
+    }
+
+    private static async Task<Guid> CreateAccessRequestAsync(
+        HttpClient client,
+        IReadOnlyList<string> requestedCapabilities
+    )
+    {
         using HttpResponseMessage response = await client.PostAsJsonAsync(
             "/api/v1/access-requests",
-            CreateValidRequest(),
+            CreateValidRequest(requestedCapabilities),
             TestContext.Current.CancellationToken
         );
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
@@ -493,14 +669,82 @@ public sealed class AccessRequestEndpointTests
         return document.RootElement.GetProperty("id").GetGuid();
     }
 
+    private static async Task<Guid> ApproveAccessRequestAsync(
+        HttpClient client,
+        Guid accessRequestId
+    )
+    {
+        client.DefaultRequestHeaders.Remove("X-Gatekeeper-Admin-Token");
+        client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "test-admin-token");
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/access-requests/{accessRequestId}/approve",
+            new { comment = "approved" },
+            TestContext.Current.CancellationToken
+        );
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument document = await JsonDocument.ParseAsync(
+            await response.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken),
+            cancellationToken: TestContext.Current.CancellationToken
+        );
+
+        return document.RootElement.GetProperty("sessionId").GetGuid();
+    }
+
+    private static async Task AssertAuditEventExistsAsync(
+        AccessRequestApiFactory factory,
+        Guid aggregateId,
+        string eventType
+    )
+    {
+        await using AsyncServiceScope scope = factory.Services.CreateAsyncScope();
+        GatekeeperDbContext dbContext =
+            scope.ServiceProvider.GetRequiredService<GatekeeperDbContext>();
+        bool exists = await dbContext.AuditEvents.AnyAsync(
+            auditEvent =>
+                auditEvent.AggregateId == aggregateId && auditEvent.EventType == eventType,
+            TestContext.Current.CancellationToken
+        );
+        Assert.True(exists, $"Expected audit event {eventType} for aggregate {aggregateId}.");
+    }
+
+    private static async Task SeedExpiredSessionAsync(
+        AccessRequestApiFactory factory,
+        Guid sessionId
+    )
+    {
+        await using AsyncServiceScope scope = factory.Services.CreateAsyncScope();
+        GatekeeperDbContext dbContext =
+            scope.ServiceProvider.GetRequiredService<GatekeeperDbContext>();
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        await dbContext.Sessions.AddAsync(
+            new SessionEntity
+            {
+                Id = sessionId,
+                AccessRequestId = Guid.NewGuid(),
+                Status = SessionStatus.Active,
+                AllowedTargetsJson = JsonSerializer.Serialize(new[] { "prod-api" }),
+                AllowedCapabilitiesJson = JsonSerializer.Serialize(new[] { "test.echo" }),
+                CreatedAt = now.AddHours(-2),
+                ExpiresAt = now.AddHours(-1),
+            },
+            TestContext.Current.CancellationToken
+        );
+        await dbContext.SaveChangesAsync(TestContext.Current.CancellationToken);
+    }
+
     private static object CreateValidRequest()
+    {
+        return CreateValidRequest(["read_logs"]);
+    }
+
+    private static object CreateValidRequest(IReadOnlyList<string> requestedCapabilities)
     {
         return new
         {
             intent = "Investigate production incident",
             requester = "agent-1",
             targets = new[] { "prod-api" },
-            requestedCapabilities = new[] { "read_logs" },
+            requestedCapabilities = requestedCapabilities,
             durationMinutes = 30,
             risk = 1,
             justification = "Need diagnosis",

@@ -69,6 +69,51 @@ public sealed class AuditEvent
         return CreateForAggregate("SessionCreated", sessionId, occurredAt, payloadJson);
     }
 
+    public static AuditEvent CreateSessionActionRequested(
+        Guid sessionId,
+        DateTimeOffset occurredAt,
+        string payloadJson
+    )
+    {
+        return CreateForAggregate("SessionActionRequested", sessionId, occurredAt, payloadJson);
+    }
+
+    public static AuditEvent CreateSessionActionAllowed(
+        Guid sessionId,
+        DateTimeOffset occurredAt,
+        string payloadJson
+    )
+    {
+        return CreateForAggregate("SessionActionAllowed", sessionId, occurredAt, payloadJson);
+    }
+
+    public static AuditEvent CreateSessionActionDenied(
+        Guid sessionId,
+        DateTimeOffset occurredAt,
+        string payloadJson
+    )
+    {
+        return CreateForAggregate("SessionActionDenied", sessionId, occurredAt, payloadJson);
+    }
+
+    public static AuditEvent CreateSessionActionExecuted(
+        Guid sessionId,
+        DateTimeOffset occurredAt,
+        string payloadJson
+    )
+    {
+        return CreateForAggregate("SessionActionExecuted", sessionId, occurredAt, payloadJson);
+    }
+
+    public static AuditEvent CreateSessionActionFailed(
+        Guid sessionId,
+        DateTimeOffset occurredAt,
+        string payloadJson
+    )
+    {
+        return CreateForAggregate("SessionActionFailed", sessionId, occurredAt, payloadJson);
+    }
+
     public static AuditEvent Load(
         Guid id,
         string eventType,
