@@ -78,9 +78,22 @@ Den manuellen statischen Admin-Token-Eingabefluss durch eine kleine, lokale Admi
 
 Die konkrete Validierung wird im Phasen-Grill-Me festgelegt. Erwartet werden mindestens Backend-Integrationstests für Auth-Grenzen und Frontend-Tests für Login-/Logout-/geschützte Aktionen.
 
+### Detailplan
+
+Der konkrete Phasenplan liegt in `docs/phase-7-admin-authentication-hardening.md`.
+
+Er legt fest:
+
+- lokale Single-Admin-Auth statt sichtbarem Admin-Token-Feld.
+- HttpOnly Cookie-Session für Browser-Adminzugriff.
+- neue Endpunkte `POST /api/v1/admin/login`, `POST /api/v1/admin/logout`, `GET /api/v1/admin/me`.
+- Migration von approve/deny/revoke/audit auf die neue Admin-Session-Grenze.
+- keine stille Änderung am `complete`-Endpoint.
+- Backend- und Frontend-Slices bleiben getrennt.
+
 ### Commit Boundary
 
-Diese Phase darf erst nach eigenem Grill-Me und eigenem Detailplan implementiert werden.
+Diese Phase darf implementiert werden, nachdem der Detailplan in `docs/phase-7-admin-authentication-hardening.md` als aktiver Phasenplan gelesen wurde. Implementierung erfolgt in getrennten Backend-/Frontend-Slices über frische Subagents.
 
 ---
 

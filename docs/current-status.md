@@ -388,6 +388,8 @@ These are not bugs in the current phase; they are intentionally deferred scope:
 
 Recommended next phase: Admin authentication hardening.
 
+Status: detailed phase plan created in `docs/phase-7-admin-authentication-hardening.md`.
+
 Reason:
 
 - The backend and UI now support request approval, session lifecycle controls, action budget visibility, and audit browsing.
