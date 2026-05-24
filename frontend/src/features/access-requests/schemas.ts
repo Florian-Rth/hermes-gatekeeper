@@ -4,9 +4,11 @@ const stringListSchema = z.array(z.string());
 const dateTimeSchema = z.string().min(1);
 const metadataSchema = z.record(z.string(), z.string());
 const actionValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+const lifecycleTimestampSchema = dateTimeSchema.nullable();
 
 export const accessRequestStatusSchema = z.enum(["pending", "approved", "denied"]);
 export const riskLevelSchema = z.enum(["low", "medium", "high", "critical"]);
+export const sessionStatusSchema = z.enum(["active", "completed", "revoked", "expired"]);
 
 export const accessRequestSummarySchema = z.object({
   id: z.string().uuid(),
@@ -47,11 +49,27 @@ export const denialResultSchema = z.object({
 export const sessionDetailsSchema = z.object({
   id: z.string().uuid(),
   accessRequestId: z.string().uuid(),
-  status: z.enum(["active"]),
+  status: sessionStatusSchema,
   allowedTargets: stringListSchema,
   allowedCapabilities: stringListSchema,
   createdAt: dateTimeSchema,
   expiresAt: dateTimeSchema,
+  actionCount: z.number().int(),
+  maxActionCount: z.number().int(),
+  completedAt: lifecycleTimestampSchema,
+  revokedAt: lifecycleTimestampSchema,
+  expiredAt: lifecycleTimestampSchema,
+});
+
+export const sessionLifecycleResponseSchema = z.object({
+  id: z.string().uuid(),
+  accessRequestId: z.string().uuid(),
+  status: sessionStatusSchema,
+  createdAt: dateTimeSchema,
+  expiresAt: dateTimeSchema,
+  completedAt: lifecycleTimestampSchema,
+  revokedAt: lifecycleTimestampSchema,
+  expiredAt: lifecycleTimestampSchema,
 });
 
 export const sessionActionResultSchema = z.object({
@@ -59,4 +77,17 @@ export const sessionActionResultSchema = z.object({
   capability: z.string(),
   status: z.string(),
   result: z.record(z.string(), actionValueSchema),
+});
+
+export const auditEventSchema = z.object({
+  id: z.string().uuid(),
+  eventType: z.string(),
+  aggregateId: z.string().uuid().nullable(),
+  occurredAt: dateTimeSchema,
+  details: z.record(z.string(), z.string()),
+});
+
+export const listAuditEventsResponseSchema = z.object({
+  items: z.array(auditEventSchema),
+  nextCursor: z.string().nullable(),
 });

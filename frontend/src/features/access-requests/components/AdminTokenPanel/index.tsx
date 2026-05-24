@@ -4,15 +4,13 @@ import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import type { ChangeEvent, FC } from "react";
+import { useAdminToken } from "../../admin-token-context";
 
-interface AdminTokenPanelProps {
-  readonly adminToken: string;
-  readonly onAdminTokenChange: (value: string) => void;
-}
+export const AdminTokenPanel: FC = () => {
+  const { adminToken, setAdminToken } = useAdminToken();
 
-export const AdminTokenPanel: FC<AdminTokenPanelProps> = ({ adminToken, onAdminTokenChange }) => {
   const handleChange = (event: ChangeEvent<HTMLInputElement>): void => {
-    onAdminTokenChange(event.target.value);
+    setAdminToken(event.target.value);
   };
 
   return (

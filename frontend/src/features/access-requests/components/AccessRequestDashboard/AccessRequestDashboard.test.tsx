@@ -48,6 +48,11 @@ const sessionResponse = {
   allowedCapabilities: ["test.echo"],
   createdAt: "2026-05-23T10:00:00Z",
   expiresAt: "2026-05-23T10:30:00Z",
+  actionCount: 0,
+  maxActionCount: 3,
+  completedAt: null,
+  revokedAt: null,
+  expiredAt: null,
 };
 
 const actionResponse = {
@@ -55,6 +60,19 @@ const actionResponse = {
   capability: "test.echo",
   status: "succeeded",
   result: { message: "Hello from approval UI" },
+};
+
+const auditResponse = {
+  items: [
+    {
+      id: "33333333-3333-4333-8333-333333333333",
+      eventType: "access_request.created",
+      aggregateId: requestId,
+      occurredAt: "2026-05-23T10:01:00Z",
+      details: { requester: "agent-alpha" },
+    },
+  ],
+  nextCursor: null,
 };
 
 interface TestProvidersProps {
@@ -74,6 +92,23 @@ const renderDashboard = (): void => {
       <AccessRequestDashboard />
     </TestProviders>,
   );
+};
+
+const getHeaderValue = (headers: HeadersInit | undefined, name: string): string | null => {
+  if (headers === undefined) {
+    return null;
+  }
+
+  if (headers instanceof Headers) {
+    return headers.get(name);
+  }
+
+  if (Array.isArray(headers)) {
+    const headerEntry = headers.find(([headerName]) => headerName === name);
+    return headerEntry?.[1] ?? null;
+  }
+
+  return headers[name] ?? null;
 };
 
 describe("AccessRequestDashboard", () => {
@@ -129,7 +164,12 @@ describe("AccessRequestDashboard", () => {
     renderDashboard();
 
     await screen.findByText("Inspect service logs");
+    localStorage.clear();
+    sessionStorage.clear();
+
     await user.type(screen.getByLabelText("X-Gatekeeper-Admin-Token"), "secret-token");
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
     await user.type(screen.getByLabelText("Optional decision comment"), "Looks safe");
     await user.click(screen.getByRole("button", { name: "Approve request" }));
 
@@ -147,5 +187,71 @@ describe("AccessRequestDashboard", () => {
     await waitFor(() => {
       expect(screen.getByText(/Demo action test.echo succeeded/)).toBeInTheDocument();
     });
+  });
+
+  it("renders audit events in context and filters by the selected request id", async (): Promise<void> => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/access-requests") {
+        return Promise.resolve(new Response(JSON.stringify(listResponse)));
+      }
+      if (url === `/api/v1/access-requests/${requestId}`) {
+        return Promise.resolve(new Response(JSON.stringify(detailsResponse)));
+      }
+      if (url.startsWith("/api/v1/audit-events")) {
+        return Promise.resolve(new Response(JSON.stringify(auditResponse)));
+      }
+      return Promise.resolve(new Response(JSON.stringify(detailsResponse)));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    renderDashboard();
+
+    expect(await screen.findByText("Audit events")).toBeInTheDocument();
+    await screen.findByText("Inspect service logs");
+    await user.type(screen.getByLabelText("X-Gatekeeper-Admin-Token"), "secret-token");
+
+    expect(await screen.findByText("access_request.created")).toBeInTheDocument();
+    expect(screen.getAllByText(requestId).length).toBeGreaterThan(0);
+
+    await waitFor(() => {
+      const auditCall = fetchMock.mock.calls.find(
+        (call) =>
+          call[0].toString().startsWith("/api/v1/audit-events") &&
+          getHeaderValue(call[1]?.headers, "X-Gatekeeper-Admin-Token") === "secret-token",
+      );
+      expect(auditCall?.[0].toString()).toContain(`aggregateId=${requestId}`);
+      expect(getHeaderValue(auditCall?.[1]?.headers, "X-Gatekeeper-Admin-Token")).toBe(
+        "secret-token",
+      );
+    });
+  });
+
+  it("does not fetch audit events without an admin token", async (): Promise<void> => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/access-requests") {
+        return Promise.resolve(new Response(JSON.stringify(listResponse)));
+      }
+      if (url === `/api/v1/access-requests/${requestId}`) {
+        return Promise.resolve(new Response(JSON.stringify(detailsResponse)));
+      }
+      if (url.startsWith("/api/v1/audit-events")) {
+        return Promise.resolve(new Response(JSON.stringify(auditResponse)));
+      }
+      return Promise.resolve(new Response(JSON.stringify(detailsResponse)));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderDashboard();
+
+    expect(await screen.findByText("Audit events")).toBeInTheDocument();
+    expect(screen.getByText(/Enter the admin token to load audit events/)).toBeInTheDocument();
+    await screen.findByText("Need to verify a failing health check.");
+
+    expect(
+      fetchMock.mock.calls.some((call) => call[0].toString().startsWith("/api/v1/audit-events")),
+    ).toBe(false);
   });
 });

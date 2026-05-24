@@ -1,20 +1,20 @@
 # Hermes Gatekeeper — Current Project Status
 
-Last updated: 2026-05-23
+Last updated: 2026-05-24
 Current branch: `main`
-Latest product/deploy commit: `ed6cbec fix: pass admin token in compose`
+Latest product/deploy commit: `47502c8 feat: add session lifecycle and audit controls`
 
 ## Executive Summary
 
-Hermes Gatekeeper has a working backend MVP core through Phase 3 and a minimal approval web UI through Phase 4:
+Hermes Gatekeeper has a working backend MVP core through Phase 5 and a session lifecycle/audit web UI through Phase 6:
 
 ```text
-Access Request -> Approve/Deny -> Session -> Execute typed dummy action -> Audit
+Access Request -> Approve/Deny -> Session -> Execute typed dummy action -> Lifecycle controls in UI -> Audit browsing UI
 ```
 
 The backend is implemented with .NET 10, ASP.NET Core/FastEndpoints, EF Core, SQLite, migrations, and integration tests. The frontend now has a minimal browser dashboard for listing requests, reviewing details, entering the static admin token, approving/denying, viewing the created session summary, and optionally running a dummy session action.
 
-Future agents should treat the backend action loop and minimal approval UI as implemented and validated. Do not re-plan or rebuild Phases 0-4 unless the repository state contradicts this document.
+Phase 5 added backend session lifecycle controls, action-budget enforcement, lazy expiry, and an admin audit listing API. Phase 6 exposed those capabilities in the web UI with compound SessionLifecycleCard and AuditFeed components. Future agents should treat the backend action loop, lifecycle controls, audit API, and lifecycle/audit UI as implemented and validated. Do not re-plan or rebuild Phases 0-6 unless the repository state contradicts this document.
 
 ## Implemented and Committed
 
@@ -206,6 +206,94 @@ Important current limitation:
 
 - This is not full admin authentication. The UI uses the existing static admin token manually entered by the user.
 
+### Phase 5 — Session Lifecycle and Audit Visibility Backend
+
+Commit: `47502c8 feat: add session lifecycle and audit controls`
+
+Implemented:
+
+- Session lifecycle states beyond `Active`:
+  - `Completed`
+  - `Revoked`
+  - `Expired`
+- Session lifecycle endpoints:
+  - `POST /api/v1/sessions/{id}/complete`
+  - `POST /api/v1/sessions/{id}/revoke`
+- Lazy expiry materialization on relevant session access.
+- Action budget tracking:
+  - `ActionCount`
+  - `MaxActionCount`
+  - `GATEKEEPER_SESSION_MAX_ACTION_COUNT` with fallback semantics.
+- Atomic action budget reservation before adapter dispatch.
+- Parallel action requests cannot exceed the action budget.
+- Terminal sessions block action execution without consuming budget.
+- Admin audit listing API:
+  - `GET /api/v1/audit-events`
+  - filters: `aggregateId`, `eventType`, `from`, `to`
+  - cursor/limit pagination
+  - bounded details exposure.
+- Audit events:
+  - `SessionCompleted`
+  - `SessionRevoked`
+  - `SessionExpired`
+  - `ActionCountExceeded`
+
+Validation for Phase 5:
+
+- `dotnet csharpier check .`: passed.
+- `dotnet build Gatekeeper.sln --no-restore`: passed, 0 warnings.
+- `dotnet test Gatekeeper.sln --no-restore`: passed, 120/120.
+- Final integration review: APPROVED.
+
+Important current limitation:
+
+- Phase 5 is backend-only. The web UI does not yet expose revoke/complete, action budget, terminal status details, or audit browsing.
+
+### Phase 6 — Session Lifecycle and Audit Visibility UI
+
+Commit: `PENDING`
+
+Implemented:
+
+- Phase plan: `docs/phase-6-session-lifecycle-audit-ui.md`.
+- Shared in-memory admin token context:
+  - token stays in React state only.
+  - no localStorage/sessionStorage/cookie persistence.
+  - non-sensitive token version is used for audit query cache isolation.
+- Extended frontend API boundary and TanStack Query hooks for:
+  - Phase 5 session lifecycle fields.
+  - complete/revoke session mutations.
+  - audit event listing with filters and cursor pagination.
+- Compound `SessionLifecycleCard` with context-backed slots:
+  - status, budget, capabilities, timestamps, and lifecycle actions.
+  - complete/revoke controls for active sessions.
+  - revoke confirmation and admin-token requirement.
+  - terminal sessions render read-only state.
+- Compound `AuditFeed` with context-backed slots:
+  - filters for aggregateId, eventType, from, and to.
+  - cursor pagination.
+  - loading, empty, error, and list states.
+  - bounded key/value details rendering.
+- Dashboard integration:
+  - audit section in the existing request review flow.
+  - default audit filter by selected request id.
+  - no global session list assumption.
+
+Validation for Phase 6:
+
+- `cd frontend && pnpm check`: passed.
+- `cd frontend && pnpm test -- --run`: passed, 24/24 tests.
+- `cd frontend && pnpm build`: passed.
+- `docker compose config`: passed.
+- `docker compose build frontend`: passed.
+- Slice spec reviews: PASS.
+- Slice code quality/security reviews: APPROVED.
+
+Important current limitation:
+
+- There is still no full admin login/cookie auth; the UI uses the existing manually entered static admin token.
+- There is no global session list endpoint/UI; the UI works with known sessions from the request/approval flow.
+
 ## Current API Surface
 
 ### Health
@@ -236,6 +324,8 @@ GATEKEEPER_ADMIN_TOKEN
 
 - `GET /api/v1/sessions/{id}`
 - `POST /api/v1/sessions/{sessionId}/actions`
+- `POST /api/v1/sessions/{id}/complete`
+- `POST /api/v1/sessions/{id}/revoke`
 
 Session action request shape:
 
@@ -247,6 +337,26 @@ Session action request shape:
   }
 }
 ```
+
+
+### Audit Events
+
+- `GET /api/v1/audit-events`
+
+Audit listing requires:
+
+```http
+X-Gatekeeper-Admin-Token: <token>
+```
+
+Supported filters:
+
+- `aggregateId`
+- `eventType`
+- `from`
+- `to`
+- `cursor`
+- `limit`
 
 Session action success response shape:
 
@@ -266,12 +376,8 @@ Session action success response shape:
 These are not bugs in the current phase; they are intentionally deferred scope:
 
 - No full admin login/cookie auth yet.
-- No session revoke endpoint yet.
-- No session complete endpoint yet.
-- No max action count tracking yet.
-- `SessionStatus` currently only has `Active`.
-- No action history endpoint beyond audit events.
-- No audit browsing API/UI yet.
+- No global session list endpoint/UI yet.
+- No action history UI beyond the audit event API.
 - No agent authentication for request creation/action execution beyond current MVP boundaries.
 - No real target adapters.
 - No production/HomeLab integration.
@@ -280,25 +386,20 @@ These are not bugs in the current phase; they are intentionally deferred scope:
 
 ## Recommended Next Phase
 
-Recommended next phase: Backend hardening for session lifecycle and audit browsing.
+Recommended next phase: Admin authentication hardening.
 
 Reason:
 
-- The minimal UI can approve/deny and show created sessions.
-- The next major product gap is lifecycle control after approval.
-- Revocation, completion, max action count, and audit browsing make sessions safer and more operable.
+- The backend and UI now support request approval, session lifecycle controls, action budget visibility, and audit browsing.
+- The most important remaining product/security gap is still the manually entered static admin token.
+- Replacing static token entry with a local admin login/session model would make the UI safer and more usable before adding productive adapters.
 
 Suggested scope:
 
-- `POST /api/v1/sessions/{id}/revoke`.
-- `POST /api/v1/sessions/{id}/complete`.
-- max action count tracking.
-- action history or audit listing/filter API.
-- UI wiring for revoke/complete and audit visibility.
-
-Alternative if backend lifecycle is postponed:
-
-- Full local admin login/cookie auth to replace manual static token entry.
+- Design a small local admin authentication model.
+- Replace manual token entry with a secure browser session.
+- Preserve explicit approval boundaries and auditability.
+- Keep productive adapters, raw shell, OIDC, mTLS, TOTP, Passkeys, and multi-admin approval out of the immediate next phase unless explicitly chosen.
 
 ## Important Agent Instructions
 
@@ -309,7 +410,9 @@ Future agents should:
 3. Do not assume the older phase numbering in `docs/implementation-plan.md` is exact; implementation was intentionally re-scoped:
    - Approval + sessions were completed before full admin login.
    - Session actions + dummy adapter were completed before frontend UI.
-   - Minimal approval web UI is now implemented, but full admin login is still deferred.
+   - Minimal approval web UI is implemented.
+   - Backend lifecycle/audit controls and their frontend UI are implemented.
+   - Full admin login is still deferred.
 4. Keep all productive-system access behind typed adapters and explicit approvals.
 5. Do not add raw shell or real HomeLab adapters until Florian explicitly chooses that phase.
 6. Keep using integration tests for full HTTP flows, especially security and audit behavior.

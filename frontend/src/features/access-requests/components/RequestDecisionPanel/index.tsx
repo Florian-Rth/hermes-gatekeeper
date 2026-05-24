@@ -1,18 +1,17 @@
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
-import Chip from "@mui/material/Chip";
-import CircularProgress from "@mui/material/CircularProgress";
 import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import type { ChangeEvent, FC } from "react";
-import { useApproveAccessRequest, useDenyAccessRequest, useExecuteDummyAction } from "../../api";
+import { useAdminToken } from "../../admin-token-context";
+import { useApproveAccessRequest, useDenyAccessRequest } from "../../api";
 import type { AccessRequestDetails, ApprovalResult, SessionDetails } from "../../types";
+import { SessionLifecycleCard } from "../SessionLifecycleCard";
 
 interface RequestDecisionPanelProps {
   readonly request: AccessRequestDetails | undefined;
-  readonly adminToken: string;
   readonly comment: string;
   readonly onCommentChange: (value: string) => void;
   readonly approvalResult: ApprovalResult | null;
@@ -30,7 +29,6 @@ const getErrorMessage = (error: Error | null): string | null => {
 
 export const RequestDecisionPanel: FC<RequestDecisionPanelProps> = ({
   request,
-  adminToken,
   comment,
   onCommentChange,
   approvalResult,
@@ -38,16 +36,12 @@ export const RequestDecisionPanel: FC<RequestDecisionPanelProps> = ({
   isSessionLoading,
   onApproved,
 }) => {
+  const { adminToken } = useAdminToken();
   const approveMutation = useApproveAccessRequest();
   const denyMutation = useDenyAccessRequest();
-  const actionMutation = useExecuteDummyAction();
+  const trimmedAdminToken = adminToken.trim();
   const canDecide =
-    request !== undefined && request.status === "pending" && adminToken.trim() !== "";
-  const dummyCapability = session?.allowedCapabilities.includes("test.echo")
-    ? "test.echo"
-    : session?.allowedCapabilities.includes("test.status.read")
-      ? "test.status.read"
-      : null;
+    request !== undefined && request.status === "pending" && trimmedAdminToken !== "";
 
   const handleCommentChange = (event: ChangeEvent<HTMLInputElement>): void => {
     onCommentChange(event.target.value);
@@ -58,7 +52,7 @@ export const RequestDecisionPanel: FC<RequestDecisionPanelProps> = ({
       return;
     }
     approveMutation.mutate(
-      { id: request.id, adminToken, comment },
+      { id: request.id, adminToken: trimmedAdminToken, comment },
       { onSuccess: (result) => onApproved(result) },
     );
   };
@@ -67,24 +61,15 @@ export const RequestDecisionPanel: FC<RequestDecisionPanelProps> = ({
     if (request === undefined) {
       return;
     }
-    denyMutation.mutate({ id: request.id, adminToken, comment });
-  };
-
-  const handleDummyAction = (): void => {
-    if (session === undefined || dummyCapability === null) {
-      return;
-    }
-    actionMutation.mutate({ sessionId: session.id, capability: dummyCapability });
+    denyMutation.mutate({ id: request.id, adminToken: trimmedAdminToken, comment });
   };
 
   const errorMessage =
-    getErrorMessage(approveMutation.error) ??
-    getErrorMessage(denyMutation.error) ??
-    getErrorMessage(actionMutation.error);
+    getErrorMessage(approveMutation.error) ?? getErrorMessage(denyMutation.error);
 
   return (
     <Paper elevation={1} sx={{ p: 3 }}>
-      <Stack spacing={2}>
+      <Stack sx={{ gap: 2 }}>
         <Typography component="h2" variant="h5">
           Decision
         </Typography>
@@ -96,7 +81,7 @@ export const RequestDecisionPanel: FC<RequestDecisionPanelProps> = ({
         {request !== undefined && request.status !== "pending" ? (
           <Alert severity="info">This request is already {request.status.toLowerCase()}.</Alert>
         ) : null}
-        {request !== undefined && request.status === "pending" && adminToken.trim() === "" ? (
+        {request !== undefined && request.status === "pending" && trimmedAdminToken === "" ? (
           <Alert severity="warning">Enter the admin token before approving or denying.</Alert>
         ) : null}
         <TextField
@@ -112,7 +97,7 @@ export const RequestDecisionPanel: FC<RequestDecisionPanelProps> = ({
             Action failed. Check the admin token or request status. {errorMessage}
           </Alert>
         )}
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+        <Stack direction={{ xs: "column", sm: "row" }} sx={{ gap: 2 }}>
           <Button
             disabled={!canDecide || approveMutation.isPending}
             onClick={handleApprove}
@@ -130,42 +115,16 @@ export const RequestDecisionPanel: FC<RequestDecisionPanelProps> = ({
           </Button>
         </Stack>
         {approvalResult === null ? null : (
-          <Alert severity="success">
-            Approved. Session {approvalResult.sessionId} expires at {approvalResult.expiresAt}.
-          </Alert>
+          <Alert severity="success">Approved. Session expires at {approvalResult.expiresAt}.</Alert>
         )}
-        {isSessionLoading ? (
-          <CircularProgress aria-label="Loading session details" size={24} />
-        ) : null}
-        {session === undefined ? null : (
-          <Stack spacing={1}>
-            <Typography component="h3" variant="h6">
-              Session details
-            </Typography>
-            <Typography>Status: {session.status}</Typography>
-            <Typography>Expires: {session.expiresAt}</Typography>
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              {session.allowedCapabilities.map((capability) => (
-                <Chip key={capability} label={capability} size="small" />
-              ))}
-            </Stack>
-            {dummyCapability === null ? null : (
-              <Button
-                disabled={actionMutation.isPending}
-                onClick={handleDummyAction}
-                variant="outlined"
-              >
-                {actionMutation.isPending ? "Running demo action..." : `Run ${dummyCapability}`}
-              </Button>
-            )}
-          </Stack>
-        )}
-        {actionMutation.data === undefined ? null : (
-          <Alert severity="success">
-            Demo action {actionMutation.data.capability} {actionMutation.data.status}:{" "}
-            {Object.values(actionMutation.data.result).join(", ")}
-          </Alert>
-        )}
+        <SessionLifecycleCard.Root session={session} isLoading={isSessionLoading}>
+          <SessionLifecycleCard.Header />
+          <SessionLifecycleCard.StatusBadge />
+          <SessionLifecycleCard.Budget />
+          <SessionLifecycleCard.Capabilities />
+          <SessionLifecycleCard.Timestamps />
+          <SessionLifecycleCard.Actions />
+        </SessionLifecycleCard.Root>
       </Stack>
     </Paper>
   );

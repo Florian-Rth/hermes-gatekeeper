@@ -2,7 +2,7 @@
 
 ## Aktueller Implementierungsstand
 
-Stand 2026-05-23: Der tatsächlich umgesetzte Schnitt ist weiter als die ursprüngliche Phasenreihenfolge in diesem Dokument. Dieses Dokument ist weiterhin verbindlich und muss vor jeder weiteren Entwicklungsphase gepflegt werden.
+Stand 2026-05-24: Der tatsächlich umgesetzte Schnitt ist weiter als die ursprüngliche Phasenreihenfolge in diesem Dokument. Dieses Dokument ist weiterhin verbindlich und muss vor jeder weiteren Entwicklungsphase gepflegt werden.
 
 Abgeschlossen und auf `main` gepusht:
 
@@ -12,11 +12,13 @@ Abgeschlossen und auf `main` gepusht:
 - Session Actions + Dummy Adapter: `7625807 feat: add session actions with dummy adapter`
 - Minimal Approval Web UI: `35f2eec feat: add minimal approval web ui`
 - Compose Admin-Token-Korrektur: `ed6cbec fix: pass admin token in compose`
+- Phase 5 Session Lifecycle und Audit Controls Backend: `47502c8 feat: add session lifecycle and audit controls`
+- Phase 6 Session Lifecycle und Audit Visibility UI: `PENDING`
 
 Der aktuelle Backend-Kern kann:
 
 ```text
-Access Request -> Approve/Deny in Web UI -> Session -> Execute typed dummy action -> Audit
+Access Request -> Approve/Deny in Web UI -> Session -> Execute typed dummy action -> Lifecycle controls in UI -> Audit browsing UI
 ```
 
 Wichtige Abweichung vom ursprünglichen Plan:
@@ -24,6 +26,7 @@ Wichtige Abweichung vom ursprünglichen Plan:
 - Approval + Sessions wurden backendseitig mit statischem Admin-Token umgesetzt, bevor eine vollständige lokale Admin-Login-UI existiert.
 - Session Actions + Dummy Adapter wurden vor der Minimal Web UI umgesetzt, um den Produktkern früh per Integrationstests zu beweisen.
 - Die Minimal Approval Web UI ist inzwischen umgesetzt und kann Requests listen, Details anzeigen, approve/deny ausführen, Session Summary anzeigen und safe Dummy Actions anstoßen.
+- Session Lifecycle und Audit Visibility wurden backendseitig in Phase 5 umgesetzt und frontendseitig in Phase 6 sichtbar/bedienbar gemacht.
 - Die ältere Phasennummerierung unten bleibt als strategischer Plan erhalten, ist aber nicht mehr exakt die Umsetzungsreihenfolge.
 
 Für zukünftige Agents ist `docs/current-status.md` die führende Statusquelle für den Ist-Zustand. Dieses Dokument bleibt der verbindliche Roadmap-/Planungsrahmen und darf nicht ignoriert oder spontan ersetzt werden.
@@ -41,95 +44,43 @@ Dieser Plan ist Teil des Entwicklungsprozesses, nicht nur Dokumentation nachträ
 - Nach jeder Phase `docs/current-status.md` und bei Roadmap-/Scope-Änderungen auch dieses Dokument aktualisieren.
 - Der Plan darf angepasst werden; er darf nicht stillschweigend über den Haufen geworfen werden.
 
-## Nächste konkrete Phase — Session Lifecycle und Audit Visibility Backend
+## Nächste konkrete Phase — Admin Authentication Hardening
 
-Diese Phase fasst die noch offenen, bereits geplanten Sicherheits- und Operability-Anteile aus der ursprünglichen Phase 5, Phase 6 und Phase 7 zusammen. Sie baut auf dem vorhandenen Stand auf:
-
-```text
-Access Request -> Approve/Deny in Web UI -> Session -> Execute typed dummy action -> Audit
-```
+Phase 6 hat die bestehenden Backend-Fähigkeiten für Session Lifecycle und Audit Visibility in der Web UI sichtbar und bedienbar gemacht. Die nächste konkrete Lücke ist nicht ein weiterer Adapter, sondern die Admin-Authentifizierung: Die UI nutzt weiterhin den manuell eingegebenen statischen Admin Token.
 
 ### Ziel
 
-Genehmigte Sessions werden widerrufbar, abschließbar, begrenzt und nachvollziehbar. Admins können backendseitig den Lebenszyklus und die Audit-Spur einer Session abfragen. Die UI dafür folgt in einer separaten Frontend-Phase.
-
-Detailplan: `docs/phase-5-session-lifecycle-audit-backend.md`.
+Den manuellen statischen Admin-Token-Eingabefluss durch eine kleine, lokale Admin-Authentifizierung ersetzen, ohne die expliziten Approval-Grenzen, Auditierbarkeit oder den frontend/backend-getrennten Workflow aufzugeben.
 
 ### Ergebnis am Ende der Phase
 
-- Sessions haben klare Lifecycle-Zustände über `Active` hinaus.
-- Sessions können per API revoked und completed werden.
-- Expired Sessions werden zuverlässig erkannt und blockieren Actions.
-- Ein maximales Action-Limit wird persistiert, gezählt und erzwungen.
-- Audit Events sind per API filterbar abrufbar.
-- Die Backend-API liefert den Vertrag, auf dem eine spätere Frontend-Phase Session Lifecycle und Audit Visibility aufbauen kann.
+- Admins authentifizieren sich über einen dedizierten Login-/Session-Flow statt über ein dauerhaft sichtbares Token-Feld.
+- Admin-geschützte UI-Aktionen funktionieren ohne manuelle Token-Wiederverwendung im Browser-State.
+- Bestehende Approval-, Revoke- und Audit-Flows bleiben erhalten.
+- Token/Session-Handling ist dokumentiert, getestet und auditierbar.
 
-### Backend Scope
+### Vorläufiger Scope
 
-- `SessionStatus` erweitern:
-  - `Active`
-  - `Completed`
-  - `Revoked`
-  - `Expired`
-- `POST /api/v1/sessions/{id}/revoke`.
-- `POST /api/v1/sessions/{id}/complete`.
-- Action-Zähler und Max-Action-Limit ergänzen.
-- Session Actions blockieren, wenn Session completed, revoked, expired oder action-limit-exceeded ist.
-- Expiry-Handling deterministisch implementieren, z.B. lazy beim Session-/Action-Zugriff.
-- Audit-API ergänzen:
-  - `GET /api/v1/audit-events`
-  - Filter nach `accessRequestId`, `sessionId`, `eventType` wo sinnvoll.
-- Audit Events ergänzen:
-  - `SessionCompleted`
-  - `SessionRevoked`
-  - `SessionExpired`
-  - `ActionCountExceeded`
-
-### Frontend Scope
-
-Frontend wird bewusst in eine separate Folgephase verschoben, damit Backend und Frontend nicht in einer zu großen Full-stack-Phase vermischt werden.
-
-Die spätere Frontend-Folgephase soll voraussichtlich:
-
-- Session Summary um Status, Ablaufzeit, Action Count und Lifecycle-Aktionen erweitern.
-- Revoke/Complete-Buttons nur anzeigen/aktivieren, wenn Backend-Zustand sie erlaubt.
-- Audit Events für ausgewählten Request bzw. Session anzeigen.
-- Fehlerzustände menschenlesbar darstellen, z.B. revoked/expired/action limit exceeded.
-
-### Entscheidung aus Grill-Me
-
-- Backend und Frontend werden grundsätzlich in separaten Phasen behandelt.
-- Diese konkrete nächste Phase wird Backend-first umgesetzt.
-- Frontend-Wiring für Session Lifecycle und Audit Visibility wird als Folgephase geplant.
-- Session Lifecycle nutzt ein einfaches terminales Zustandsmodell: `Active -> Completed`, `Active -> Revoked`, `Active -> Expired`; `Completed`, `Revoked` und `Expired` sind terminal.
-- Revoke und Audit Listing nutzen den bestehenden Admin-Token-Mechanismus via `X-Gatekeeper-Admin-Token`.
-- Complete führt in dieser Phase keine neue Client-Auth ein; spätere Client-Token-/mTLS-/Request-Signing-Härtung bleibt eine eigene Backend-Security-Phase.
-- Action-Limit-Semantik: Beim Erzeugen einer Session wird ein serverseitiger Default als `MaxActionCount` in die Session kopiert. Gezählt werden nur autorisierte Adapter-Dispatches nach Lifecycle- und Capability-Check, unabhängig davon, ob der Adapter erfolgreich ist oder kontrolliert fehlschlägt. Invalid Requests, forbidden capabilities und bereits completed/revoked/expired Sessions verbrauchen kein Budget. Der Default ist per `GATEKEEPER_SESSION_MAX_ACTION_COUNT` konfigurierbar und fällt auf `10` zurück.
-- Audit-Listing-API: `GET /api/v1/audit-events` als minimaler generischer Admin-Audit-Feed mit `X-Gatekeeper-Admin-Token`, Cursor/Limit-Pagination und einfachen Filtern für `aggregateId`, `eventType`, `from` und `to`. Die Response enthält `id`, `eventType`, `aggregateId`, `occurredAt` und eine begrenzte Details-/Summary-Struktur, aber keinen unkontrollierten Raw-Output.
-- Expiry-Handling: Expiry wird lazy und serverseitig materialisiert. Jeder relevante Session-Service-Zugriff prüft vor der fachlichen Operation, ob eine aktive Session abgelaufen ist. Falls ja, wird sie atomar auf `Expired` gesetzt, ein `SessionExpired` AuditEvent geschrieben und die ursprüngliche Operation auf Basis des terminalen `Expired`-Zustands beantwortet. `GET /api/v1/sessions/{id}` materialisiert Expiry ebenfalls. `complete` und `revoke` auf bereits abgelaufenen Active-Sessions setzen zuerst `Expired` und geben dann `409 Conflict` zurück. `SessionExpired` wird nur beim ersten erfolgreichen Übergang `Active -> Expired` auditiert. Kein Background Worker in dieser Phase.
-- Action-Ausführung nutzt eine atomare Budget-Reservation vor Adapter-Dispatch. Die Reservation erhöht `ActionCount` nur, wenn die Session weiterhin `Active`, nicht expired und unter `MaxActionCount` ist. Erst nach erfolgreicher Reservation wird der Adapter ausgeführt. Bei `ActionCount >= MaxActionCount` erfolgt kein Adapter-Dispatch, kein weiterer Budgetverbrauch, `409 Conflict` und ein `ActionCountExceeded` AuditEvent. Parallele Requests dürfen das Limit nicht überschreiten; terminale Statusübergänge gewinnen gegenüber späteren Actions. Es wird keine lange DB-Transaktion über Adapter-I/O gehalten.
+- Kleine lokale Admin-Auth evaluieren und planen.
+- Login-/Logout-Flow und Session-Handling definieren.
+- Backend und Frontend weiterhin in getrennte Slices/Phasen schneiden.
+- Bestehende statische Token-Grenze nicht stillschweigend entfernen, bevor Ersatz validiert ist.
 
 ### Nicht-Ziele
 
 - Keine produktiven Adapter.
 - Keine freie Shell.
-- Keine OIDC/Passkeys/TOTP/mTLS.
-- Keine komplexe Policy DSL.
-- Keine manipulationssichere Audit Hash Chain.
-- Keine HomeLab-/SSH-/Docker-Integration.
+- Keine OIDC/Passkeys/TOTP/mTLS/multi-admin approval, außer Florian wählt diese Richtung explizit.
+- Keine Policy DSL.
+- Keine globale Session Operations Console, solange kein Session-List-API-Scope beschlossen ist.
 
 ### Validierung
 
-- Backend TDD-Slices mit Tests für alle Lifecycle-Übergänge und Deny-Fälle.
-- Integrationstests für revoke, complete, expired, action count limit und Audit Listing.
-- `dotnet test backend/Gatekeeper.sln` oder Docker-SDK-Fallback.
-- `cd backend && dotnet csharpier format . && dotnet csharpier check .`.
-- `docker compose config`.
-- `docker compose build backend`.
+Die konkrete Validierung wird im Phasen-Grill-Me festgelegt. Erwartet werden mindestens Backend-Integrationstests für Auth-Grenzen und Frontend-Tests für Login-/Logout-/geschützte Aktionen.
 
 ### Commit Boundary
 
-Diese Phase endet erst, wenn das Backend validiert, reviewed, dokumentiert, committed und gepusht ist.
+Diese Phase darf erst nach eigenem Grill-Me und eigenem Detailplan implementiert werden.
 
 ---
 

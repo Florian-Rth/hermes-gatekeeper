@@ -5,16 +5,21 @@ import {
   approvalResultSchema,
   denialResultSchema,
   listAccessRequestsResponseSchema,
+  listAuditEventsResponseSchema,
   sessionActionResultSchema,
   sessionDetailsSchema,
+  sessionLifecycleResponseSchema,
 } from "./schemas";
 import type {
   AccessRequestDetails,
   AccessRequestSummary,
   ApprovalResult,
+  AuditEventFilters,
   DenialResult,
+  ListAuditEventsResponse,
   SessionActionResult,
   SessionDetails,
+  SessionLifecycleResponse,
 } from "./types";
 
 interface DecisionVariables {
@@ -28,10 +33,50 @@ interface ExecuteDummyActionVariables {
   readonly capability: "test.echo" | "test.status.read";
 }
 
+interface SessionLifecycleVariables {
+  readonly sessionId: string;
+}
+
+interface RevokeSessionVariables extends SessionLifecycleVariables {
+  readonly adminToken: string;
+}
+
 const accessRequestKeys = {
   all: ["access-requests"] as const,
   detail: (id: string) => ["access-requests", id] as const,
-  session: (id: string) => ["sessions", id] as const,
+};
+
+const sessionKeys = {
+  all: ["sessions"] as const,
+  detail: (id: string) => ["sessions", id] as const,
+};
+
+const auditEventKeys = {
+  all: ["audit-events"] as const,
+  list: (filters: AuditEventFilters, adminTokenVersion: number) =>
+    ["audit-events", filters, adminTokenVersion] as const,
+};
+
+const appendFilter = (
+  searchParams: URLSearchParams,
+  key: string,
+  value: string | number | undefined,
+): void => {
+  if (value !== undefined) {
+    searchParams.set(key, value.toString());
+  }
+};
+
+const buildAuditEventsPath = (filters: AuditEventFilters): string => {
+  const searchParams = new URLSearchParams();
+  appendFilter(searchParams, "aggregateId", filters.aggregateId);
+  appendFilter(searchParams, "eventType", filters.eventType);
+  appendFilter(searchParams, "from", filters.from);
+  appendFilter(searchParams, "to", filters.to);
+  appendFilter(searchParams, "cursor", filters.cursor);
+  appendFilter(searchParams, "limit", filters.limit);
+  const queryString = searchParams.toString();
+  return queryString.length === 0 ? "/api/v1/audit-events" : `/api/v1/audit-events?${queryString}`;
 };
 
 export const useAccessRequests = () =>
@@ -66,6 +111,7 @@ export const useApproveAccessRequest = () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: accessRequestKeys.all }),
         queryClient.invalidateQueries({ queryKey: accessRequestKeys.detail(variables.id) }),
+        queryClient.invalidateQueries({ queryKey: auditEventKeys.all }),
       ]);
     },
   });
@@ -84,6 +130,7 @@ export const useDenyAccessRequest = () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: accessRequestKeys.all }),
         queryClient.invalidateQueries({ queryKey: accessRequestKeys.detail(variables.id) }),
+        queryClient.invalidateQueries({ queryKey: auditEventKeys.all }),
       ]);
     },
   });
@@ -91,13 +138,63 @@ export const useDenyAccessRequest = () => {
 
 export const useSessionDetails = (id: string | null) =>
   useQuery<SessionDetails>({
-    queryKey: id === null ? ["sessions", "none"] : accessRequestKeys.session(id),
+    queryKey: id === null ? ["sessions", "none"] : sessionKeys.detail(id),
     enabled: id !== null,
     queryFn: async () => requestJson(`/api/v1/sessions/${id}`, sessionDetailsSchema),
   });
 
-export const useExecuteDummyAction = () =>
-  useMutation<SessionActionResult, Error, ExecuteDummyActionVariables>({
+export const useCompleteSession = () => {
+  const queryClient = useQueryClient();
+  return useMutation<SessionLifecycleResponse, Error, SessionLifecycleVariables>({
+    mutationFn: async ({ sessionId }) =>
+      requestJson(`/api/v1/sessions/${sessionId}/complete`, sessionLifecycleResponseSchema, {
+        method: "POST",
+      }),
+    onSuccess: async (_data, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: sessionKeys.detail(variables.sessionId) }),
+        queryClient.invalidateQueries({ queryKey: auditEventKeys.all }),
+      ]);
+    },
+  });
+};
+
+export const useRevokeSession = () => {
+  const queryClient = useQueryClient();
+  return useMutation<SessionLifecycleResponse, Error, RevokeSessionVariables>({
+    mutationFn: async ({ sessionId, adminToken }) =>
+      requestJson(`/api/v1/sessions/${sessionId}/revoke`, sessionLifecycleResponseSchema, {
+        method: "POST",
+        headers: { "X-Gatekeeper-Admin-Token": adminToken },
+      }),
+    onSuccess: async (_data, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: sessionKeys.detail(variables.sessionId) }),
+        queryClient.invalidateQueries({ queryKey: auditEventKeys.all }),
+      ]);
+    },
+  });
+};
+
+export const useAuditEvents = (
+  filters: AuditEventFilters,
+  adminToken: string,
+  adminTokenVersion: number,
+) => {
+  const trimmedAdminToken = adminToken.trim();
+  return useQuery<ListAuditEventsResponse>({
+    queryKey: auditEventKeys.list(filters, adminTokenVersion),
+    enabled: trimmedAdminToken.length > 0,
+    queryFn: async () =>
+      requestJson(buildAuditEventsPath(filters), listAuditEventsResponseSchema, {
+        headers: { "X-Gatekeeper-Admin-Token": trimmedAdminToken },
+      }),
+  });
+};
+
+export const useExecuteDummyAction = () => {
+  const queryClient = useQueryClient();
+  return useMutation<SessionActionResult, Error, ExecuteDummyActionVariables>({
     mutationFn: async ({ sessionId, capability }) =>
       requestJson(`/api/v1/sessions/${sessionId}/actions`, sessionActionResultSchema, {
         method: "POST",
@@ -106,4 +203,11 @@ export const useExecuteDummyAction = () =>
           payload: capability === "test.echo" ? { message: "Hello from approval UI" } : {},
         },
       }),
+    onSuccess: async (_data, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: sessionKeys.detail(variables.sessionId) }),
+        queryClient.invalidateQueries({ queryKey: auditEventKeys.all }),
+      ]);
+    },
   });
+};
