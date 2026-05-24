@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-24
 Current branch: `main`
-Latest product/deploy commit: `47502c8 feat: add session lifecycle and audit controls`
+Latest product/deploy commit: `8a3e345 feat: add session lifecycle audit ui`
 
 ## Executive Summary
 
@@ -251,7 +251,7 @@ Important current limitation:
 
 ### Phase 6 — Session Lifecycle and Audit Visibility UI
 
-Commit: `PENDING`
+Commit: `8a3e345 feat: add session lifecycle audit ui`
 
 Implemented:
 

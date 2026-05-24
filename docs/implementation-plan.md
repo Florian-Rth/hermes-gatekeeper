@@ -13,7 +13,7 @@ Abgeschlossen und auf `main` gepusht:
 - Minimal Approval Web UI: `35f2eec feat: add minimal approval web ui`
 - Compose Admin-Token-Korrektur: `ed6cbec fix: pass admin token in compose`
 - Phase 5 Session Lifecycle und Audit Controls Backend: `47502c8 feat: add session lifecycle and audit controls`
-- Phase 6 Session Lifecycle und Audit Visibility UI: `PENDING`
+- Phase 6 Session Lifecycle und Audit Visibility UI: `8a3e345 feat: add session lifecycle audit ui`
 
 Der aktuelle Backend-Kern kann:
 
