@@ -1,5 +1,5 @@
 using FastEndpoints;
-using Gatekeeper.Api.AdminTokens;
+using Gatekeeper.Api.AdminAuthentication;
 using Gatekeeper.Application.AccessRequests;
 using Gatekeeper.Core.AccessRequests;
 
@@ -9,15 +9,15 @@ public sealed class DenyAccessRequestEndpoint
     : Endpoint<DenyAccessRequestRequest, DenyAccessRequestResponse>
 {
     private readonly IAccessRequestService _accessRequestService;
-    private readonly IAdminTokenValidator _adminTokenValidator;
+    private readonly AdminSessionGuard _adminSessionGuard;
 
     public DenyAccessRequestEndpoint(
         IAccessRequestService accessRequestService,
-        IAdminTokenValidator adminTokenValidator
+        AdminSessionGuard adminSessionGuard
     )
     {
         _accessRequestService = accessRequestService;
-        _adminTokenValidator = adminTokenValidator;
+        _adminSessionGuard = adminSessionGuard;
     }
 
     public override void Configure()
@@ -28,10 +28,7 @@ public sealed class DenyAccessRequestEndpoint
 
     public override async Task HandleAsync(DenyAccessRequestRequest req, CancellationToken ct)
     {
-        AdminTokenValidationResult tokenResult = _adminTokenValidator.Validate(
-            HttpContext.Request.Headers
-        );
-        if (tokenResult == AdminTokenValidationResult.MissingHeader)
+        if (!_adminSessionGuard.IsAuthenticated(HttpContext))
         {
             await Send.StringAsync(
                 string.Empty,
@@ -40,8 +37,7 @@ public sealed class DenyAccessRequestEndpoint
             );
             return;
         }
-
-        if (tokenResult == AdminTokenValidationResult.Forbidden)
+        if (!_adminSessionGuard.HasValidUnsafeRequestOrigin(HttpContext))
         {
             await Send.ForbiddenAsync(ct);
             return;

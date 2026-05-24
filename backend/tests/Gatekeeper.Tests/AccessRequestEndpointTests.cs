@@ -17,7 +17,9 @@ public sealed class AccessRequestEndpointTests
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
 
         using HttpResponseMessage postResponse = await client.PostAsJsonAsync(
             "/api/v1/access-requests",
@@ -83,7 +85,9 @@ public sealed class AccessRequestEndpointTests
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
 
         using HttpResponseMessage response = await client.GetAsync(
             $"/api/v1/access-requests/{Guid.NewGuid()}",
@@ -94,12 +98,14 @@ public sealed class AccessRequestEndpointTests
     }
 
     [Fact]
-    public async Task ApproveUnknownIdWithCorrectTokenReturnsNotFound()
+    public async Task ApproveUnknownIdWithLoginCookieReturnsNotFound()
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "test-admin-token");
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        await LoginAsAdminAsync(client);
 
         using HttpResponseMessage response = await client.PostAsJsonAsync(
             $"/api/v1/access-requests/{Guid.NewGuid()}/approve",
@@ -111,12 +117,14 @@ public sealed class AccessRequestEndpointTests
     }
 
     [Fact]
-    public async Task DenyUnknownIdWithCorrectTokenReturnsNotFound()
+    public async Task DenyUnknownIdWithLoginCookieReturnsNotFound()
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "test-admin-token");
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        await LoginAsAdminAsync(client);
 
         using HttpResponseMessage response = await client.PostAsJsonAsync(
             $"/api/v1/access-requests/{Guid.NewGuid()}/deny",
@@ -128,11 +136,13 @@ public sealed class AccessRequestEndpointTests
     }
 
     [Fact]
-    public async Task ApproveWithoutTokenReturnsUnauthorized()
+    public async Task ApproveWithoutCookieReturnsUnauthorized()
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client);
 
         using HttpResponseMessage response = await client.PostAsJsonAsync(
@@ -145,13 +155,15 @@ public sealed class AccessRequestEndpointTests
     }
 
     [Fact]
-    public async Task ApproveWithWrongTokenReturnsForbidden()
+    public async Task ApproveWithLegacyTokenOnlyReturnsUnauthorized()
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client);
-        client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "wrong-token");
+        client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "test-admin-token");
 
         using HttpResponseMessage response = await client.PostAsJsonAsync(
             $"/api/v1/access-requests/{accessRequestId}/approve",
@@ -159,15 +171,17 @@ public sealed class AccessRequestEndpointTests
             TestContext.Current.CancellationToken
         );
 
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]
-    public async Task ApproveWithMultipleTokenHeaderValuesReturnsForbidden()
+    public async Task ApproveWithMultipleLegacyTokenHeaderValuesReturnsUnauthorized()
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client);
         client.DefaultRequestHeaders.Add(
             "X-Gatekeeper-Admin-Token",
@@ -180,15 +194,17 @@ public sealed class AccessRequestEndpointTests
             TestContext.Current.CancellationToken
         );
 
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]
-    public async Task ApproveWithNoConfiguredServerTokenReturnsForbidden()
+    public async Task ApproveWithLegacyTokenOnlyAndNoConfiguredServerTokenReturnsUnauthorized()
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory(null);
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client);
         client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "test-admin-token");
 
@@ -198,17 +214,19 @@ public sealed class AccessRequestEndpointTests
             TestContext.Current.CancellationToken
         );
 
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]
-    public async Task ApproveWithCorrectTokenApprovesAndReturnsSessionId()
+    public async Task ApproveWithLoginCookieApprovesAndReturnsSessionId()
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client);
-        client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "test-admin-token");
+        await LoginAsAdminAsync(client);
 
         using HttpResponseMessage response = await client.PostAsJsonAsync(
             $"/api/v1/access-requests/{accessRequestId}/approve",
@@ -232,13 +250,58 @@ public sealed class AccessRequestEndpointTests
     }
 
     [Fact]
-    public async Task DenyWithCorrectTokenSetsDenied()
+    public async Task ApproveWithLoginCookieAndCrossSiteOriginReturnsForbidden()
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client);
-        client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "test-admin-token");
+        await LoginAsAdminAsync(client);
+        client.DefaultRequestHeaders.Remove("Origin");
+        client.DefaultRequestHeaders.Add("Origin", "https://attacker.example");
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/access-requests/{accessRequestId}/approve",
+            new { comment = "approved" },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ApproveWithLoginCookieAndMissingSameOriginSignalsReturnsForbidden()
+    {
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        Guid accessRequestId = await CreateAccessRequestAsync(client);
+        await LoginAsAdminAsync(client);
+        client.DefaultRequestHeaders.Remove("Origin");
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/access-requests/{accessRequestId}/approve",
+            new { comment = "approved" },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DenyWithLoginCookieSetsDenied()
+    {
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        Guid accessRequestId = await CreateAccessRequestAsync(client);
+        await LoginAsAdminAsync(client);
 
         using HttpResponseMessage response = await client.PostAsJsonAsync(
             $"/api/v1/access-requests/{accessRequestId}/deny",
@@ -259,11 +322,13 @@ public sealed class AccessRequestEndpointTests
     }
 
     [Fact]
-    public async Task DenyWithoutTokenReturnsUnauthorized()
+    public async Task DenyWithoutCookieReturnsUnauthorized()
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client);
 
         using HttpResponseMessage response = await client.PostAsJsonAsync(
@@ -276,13 +341,15 @@ public sealed class AccessRequestEndpointTests
     }
 
     [Fact]
-    public async Task DenyWithWrongTokenReturnsForbidden()
+    public async Task DenyWithLegacyTokenOnlyReturnsUnauthorized()
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client);
-        client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "wrong-token");
+        client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "test-admin-token");
 
         using HttpResponseMessage response = await client.PostAsJsonAsync(
             $"/api/v1/access-requests/{accessRequestId}/deny",
@@ -290,15 +357,17 @@ public sealed class AccessRequestEndpointTests
             TestContext.Current.CancellationToken
         );
 
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]
-    public async Task DenyWithMultipleTokenHeaderValuesReturnsForbidden()
+    public async Task DenyWithMultipleLegacyTokenHeaderValuesReturnsUnauthorized()
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client);
         client.DefaultRequestHeaders.Add(
             "X-Gatekeeper-Admin-Token",
@@ -311,15 +380,17 @@ public sealed class AccessRequestEndpointTests
             TestContext.Current.CancellationToken
         );
 
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]
-    public async Task DenyWithNoConfiguredServerTokenReturnsForbidden()
+    public async Task DenyWithLegacyTokenOnlyAndNoConfiguredServerTokenReturnsUnauthorized()
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory(null);
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client);
         client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "test-admin-token");
 
@@ -329,7 +400,7 @@ public sealed class AccessRequestEndpointTests
             TestContext.Current.CancellationToken
         );
 
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]
@@ -337,9 +408,11 @@ public sealed class AccessRequestEndpointTests
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client);
-        client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "test-admin-token");
+        await LoginAsAdminAsync(client);
 
         using HttpResponseMessage approveResponse = await client.PostAsJsonAsync(
             $"/api/v1/access-requests/{accessRequestId}/approve",
@@ -367,9 +440,11 @@ public sealed class AccessRequestEndpointTests
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client);
-        client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "test-admin-token");
+        await LoginAsAdminAsync(client);
         using HttpResponseMessage approveResponse = await client.PostAsJsonAsync(
             $"/api/v1/access-requests/{accessRequestId}/approve",
             new { comment = "approved" },
@@ -380,7 +455,6 @@ public sealed class AccessRequestEndpointTests
             cancellationToken: TestContext.Current.CancellationToken
         );
         Guid sessionId = approveDocument.RootElement.GetProperty("sessionId").GetGuid();
-        client.DefaultRequestHeaders.Remove("X-Gatekeeper-Admin-Token");
 
         using HttpResponseMessage response = await client.GetAsync(
             $"/api/v1/sessions/{sessionId}",
@@ -423,10 +497,11 @@ public sealed class AccessRequestEndpointTests
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client);
         Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
-        client.DefaultRequestHeaders.Remove("X-Gatekeeper-Admin-Token");
 
         using HttpResponseMessage response = await client.PostAsync(
             $"/api/v1/sessions/{sessionId}/complete",
@@ -449,21 +524,24 @@ public sealed class AccessRequestEndpointTests
     }
 
     [Fact]
-    public async Task RevokeSessionRequiresAdminTokenAndRevokesActiveSession()
+    public async Task RevokeSessionRequiresLoginCookieAndRevokesActiveSession()
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client);
         Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
-        client.DefaultRequestHeaders.Remove("X-Gatekeeper-Admin-Token");
 
-        using HttpResponseMessage missingTokenResponse = await client.PostAsync(
+        using HttpClient anonymousClient = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        using HttpResponseMessage missingTokenResponse = await anonymousClient.PostAsync(
             $"/api/v1/sessions/{sessionId}/revoke",
             content: null,
             TestContext.Current.CancellationToken
         );
-        client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "test-admin-token");
         using HttpResponseMessage response = await client.PostAsync(
             $"/api/v1/sessions/{sessionId}/revoke",
             content: null,
@@ -487,7 +565,9 @@ public sealed class AccessRequestEndpointTests
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client);
         Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
 
@@ -511,7 +591,9 @@ public sealed class AccessRequestEndpointTests
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid sessionId = Guid.NewGuid();
         await SeedExpiredSessionAsync(factory, sessionId);
 
@@ -549,7 +631,9 @@ public sealed class AccessRequestEndpointTests
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
 
         using HttpResponseMessage response = await client.GetAsync(
             $"/api/v1/sessions/{Guid.NewGuid()}",
@@ -564,7 +648,9 @@ public sealed class AccessRequestEndpointTests
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
 
         using HttpResponseMessage response = await client.PostAsync(
             "/api/v1/sessions/not-a-guid/complete",
@@ -580,8 +666,10 @@ public sealed class AccessRequestEndpointTests
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "test-admin-token");
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        await LoginAsAdminAsync(client);
 
         using HttpResponseMessage response = await client.PostAsync(
             "/api/v1/sessions/not-a-guid/revoke",
@@ -597,10 +685,11 @@ public sealed class AccessRequestEndpointTests
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client, ["test.echo"]);
         Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
-        client.DefaultRequestHeaders.Remove("X-Gatekeeper-Admin-Token");
 
         using HttpResponseMessage response = await client.PostAsJsonAsync(
             $"/api/v1/sessions/{sessionId}/actions",
@@ -634,10 +723,11 @@ public sealed class AccessRequestEndpointTests
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client, ["test.status.read"]);
         Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
-        client.DefaultRequestHeaders.Remove("X-Gatekeeper-Admin-Token");
 
         using HttpResponseMessage response = await client.PostAsJsonAsync(
             $"/api/v1/sessions/{sessionId}/actions",
@@ -666,10 +756,11 @@ public sealed class AccessRequestEndpointTests
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client, ["test.echo"]);
         Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
-        client.DefaultRequestHeaders.Remove("X-Gatekeeper-Admin-Token");
 
         using HttpResponseMessage response = await client.PostAsJsonAsync(
             $"/api/v1/sessions/{sessionId}/actions",
@@ -689,10 +780,11 @@ public sealed class AccessRequestEndpointTests
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client, ["test.status.read"]);
         Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
-        client.DefaultRequestHeaders.Remove("X-Gatekeeper-Admin-Token");
 
         using HttpResponseMessage response = await client.PostAsJsonAsync(
             $"/api/v1/sessions/{sessionId}/actions",
@@ -710,7 +802,9 @@ public sealed class AccessRequestEndpointTests
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client, ["test.echo"]);
         Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
 
@@ -720,7 +814,6 @@ public sealed class AccessRequestEndpointTests
             TestContext.Current.CancellationToken
         );
         Assert.Equal(HttpStatusCode.OK, completeResponse.StatusCode);
-        client.DefaultRequestHeaders.Remove("X-Gatekeeper-Admin-Token");
 
         using HttpResponseMessage response = await client.PostAsJsonAsync(
             $"/api/v1/sessions/{sessionId}/actions",
@@ -738,7 +831,9 @@ public sealed class AccessRequestEndpointTests
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client, ["test.echo"]);
         Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
 
@@ -748,7 +843,6 @@ public sealed class AccessRequestEndpointTests
             TestContext.Current.CancellationToken
         );
         Assert.Equal(HttpStatusCode.OK, revokeResponse.StatusCode);
-        client.DefaultRequestHeaders.Remove("X-Gatekeeper-Admin-Token");
 
         using HttpResponseMessage response = await client.PostAsJsonAsync(
             $"/api/v1/sessions/{sessionId}/actions",
@@ -766,7 +860,9 @@ public sealed class AccessRequestEndpointTests
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
 
         using HttpResponseMessage response = await client.PostAsJsonAsync(
             $"/api/v1/sessions/{Guid.NewGuid()}/actions",
@@ -782,7 +878,9 @@ public sealed class AccessRequestEndpointTests
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid sessionId = Guid.NewGuid();
         await SeedExpiredSessionAsync(factory, sessionId);
 
@@ -802,10 +900,11 @@ public sealed class AccessRequestEndpointTests
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client, ["test.fail"]);
         Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
-        client.DefaultRequestHeaders.Remove("X-Gatekeeper-Admin-Token");
 
         using HttpResponseMessage response = await client.PostAsJsonAsync(
             $"/api/v1/sessions/{sessionId}/actions",
@@ -825,10 +924,11 @@ public sealed class AccessRequestEndpointTests
             maxActionCount: 1
         );
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client, ["test.echo"]);
         Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
-        client.DefaultRequestHeaders.Remove("X-Gatekeeper-Admin-Token");
 
         using HttpResponseMessage firstResponse = await client.PostAsJsonAsync(
             $"/api/v1/sessions/{sessionId}/actions",
@@ -854,10 +954,11 @@ public sealed class AccessRequestEndpointTests
             maxActionCount: 1
         );
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
         Guid accessRequestId = await CreateAccessRequestAsync(client, ["test.echo"]);
         Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
-        client.DefaultRequestHeaders.Remove("X-Gatekeeper-Admin-Token");
 
         Task<HttpResponseMessage>[] requests = Enumerable
             .Range(0, 10)
@@ -894,7 +995,9 @@ public sealed class AccessRequestEndpointTests
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
 
         using HttpResponseMessage response = await client.PostAsJsonAsync(
             "/api/v1/access-requests",
@@ -916,7 +1019,9 @@ public sealed class AccessRequestEndpointTests
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
 
         using HttpResponseMessage response = await client.PostAsJsonAsync(
             "/api/v1/access-requests",
@@ -933,6 +1038,20 @@ public sealed class AccessRequestEndpointTests
         );
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    private static async Task LoginAsAdminAsync(HttpClient client)
+    {
+        using HttpResponseMessage loginResponse = await client.PostAsJsonAsync(
+            "/api/v1/admin/login",
+            new { username = "admin", password = "correct-password" },
+            TestContext.Current.CancellationToken
+        );
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+        if (!client.DefaultRequestHeaders.Contains("Origin"))
+        {
+            client.DefaultRequestHeaders.Add("Origin", "http://localhost");
+        }
     }
 
     private static async Task<Guid> CreateAccessRequestAsync(HttpClient client)
@@ -964,8 +1083,7 @@ public sealed class AccessRequestEndpointTests
         Guid accessRequestId
     )
     {
-        client.DefaultRequestHeaders.Remove("X-Gatekeeper-Admin-Token");
-        client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "test-admin-token");
+        await LoginAsAdminAsync(client);
         using HttpResponseMessage response = await client.PostAsJsonAsync(
             $"/api/v1/access-requests/{accessRequestId}/approve",
             new { comment = "approved" },
@@ -1092,6 +1210,9 @@ public sealed class AccessRequestEndpointTests
             _databasePath = Path.Combine(Path.GetTempPath(), $"gatekeeper-{Guid.NewGuid():N}.db");
             Environment.SetEnvironmentVariable("GATEKEEPER_SQLITE_DATA_PATH", _databasePath);
             Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_TOKEN", adminToken);
+            Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_USERNAME", "admin");
+            Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_PASSWORD", "correct-password");
+            Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_COOKIE_SECURE", "false");
             Environment.SetEnvironmentVariable(
                 "GATEKEEPER_SESSION_MAX_ACTION_COUNT",
                 maxActionCount?.ToString()
@@ -1111,6 +1232,9 @@ public sealed class AccessRequestEndpointTests
             base.Dispose(disposing);
             Environment.SetEnvironmentVariable("GATEKEEPER_SQLITE_DATA_PATH", null);
             Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_TOKEN", null);
+            Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_USERNAME", null);
+            Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_PASSWORD", null);
+            Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_COOKIE_SECURE", null);
             Environment.SetEnvironmentVariable("GATEKEEPER_SESSION_MAX_ACTION_COUNT", null);
             if (File.Exists(_databasePath))
             {

@@ -1,6 +1,6 @@
 using System.Globalization;
 using FastEndpoints;
-using Gatekeeper.Api.AdminTokens;
+using Gatekeeper.Api.AdminAuthentication;
 using Gatekeeper.Application.AuditEvents;
 
 namespace Gatekeeper.Api.Endpoints.AuditEvents;
@@ -8,15 +8,15 @@ namespace Gatekeeper.Api.Endpoints.AuditEvents;
 public sealed class ListAuditEventsEndpoint
     : Endpoint<ListAuditEventsRequest, ListAuditEventsResponse>
 {
-    private readonly IAdminTokenValidator _adminTokenValidator;
+    private readonly AdminSessionGuard _adminSessionGuard;
     private readonly IAuditEventQueryService _auditEvents;
 
     public ListAuditEventsEndpoint(
-        IAdminTokenValidator adminTokenValidator,
+        AdminSessionGuard adminSessionGuard,
         IAuditEventQueryService auditEvents
     )
     {
-        _adminTokenValidator = adminTokenValidator;
+        _adminSessionGuard = adminSessionGuard;
         _auditEvents = auditEvents;
     }
 
@@ -28,22 +28,13 @@ public sealed class ListAuditEventsEndpoint
 
     public override async Task HandleAsync(ListAuditEventsRequest request, CancellationToken ct)
     {
-        AdminTokenValidationResult tokenResult = _adminTokenValidator.Validate(
-            HttpContext.Request.Headers
-        );
-        if (tokenResult == AdminTokenValidationResult.MissingHeader)
+        if (!_adminSessionGuard.IsAuthenticated(HttpContext))
         {
             await Send.StringAsync(
                 string.Empty,
                 StatusCodes.Status401Unauthorized,
                 cancellation: ct
             );
-            return;
-        }
-
-        if (tokenResult == AdminTokenValidationResult.Forbidden)
-        {
-            await Send.ForbiddenAsync(ct);
             return;
         }
 

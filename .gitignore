@@ -1,6 +1,7 @@
 # .NET
 bin/
 obj/
+.nuget/
 TestResults/
 *.user
 *.suo

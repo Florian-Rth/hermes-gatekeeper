@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
 using Gatekeeper.Infrastructure.Persistence;
 using Gatekeeper.Infrastructure.Persistence.Entities;
@@ -15,7 +16,9 @@ public sealed class AuditEventEndpointTests
     {
         await using AuditEventApiFactory factory = new();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
 
         using HttpResponseMessage response = await client.GetAsync(
             "/api/v1/audit-events",
@@ -26,23 +29,25 @@ public sealed class AuditEventEndpointTests
     }
 
     [Fact]
-    public async Task ListWithWrongTokenReturnsForbidden()
+    public async Task ListWithLegacyTokenOnlyReturnsUnauthorized()
     {
         await using AuditEventApiFactory factory = new();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "wrong-token");
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "test-admin-token");
 
         using HttpResponseMessage response = await client.GetAsync(
             "/api/v1/audit-events",
             TestContext.Current.CancellationToken
         );
 
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]
-    public async Task ListWithCorrectTokenReturnsBoundedEvents()
+    public async Task ListWithLoginCookieReturnsBoundedEvents()
     {
         await using AuditEventApiFactory factory = new();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
@@ -66,11 +71,13 @@ public sealed class AuditEventEndpointTests
             },
             TestContext.Current.CancellationToken
         );
-        using HttpClient client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "test-admin-token");
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        await LoginAsAdminAsync(client);
 
         using HttpResponseMessage response = await client.GetAsync(
-            "/api/v1/audit-events",
+            "/api/v1/audit-events?eventType=SessionActionExecuted",
             TestContext.Current.CancellationToken
         );
 
@@ -120,11 +127,13 @@ public sealed class AuditEventEndpointTests
             },
             TestContext.Current.CancellationToken
         );
-        using HttpClient client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "test-admin-token");
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        await LoginAsAdminAsync(client);
 
         using HttpResponseMessage response = await client.GetAsync(
-            "/api/v1/audit-events",
+            "/api/v1/audit-events?eventType=AccessRequestApproved",
             TestContext.Current.CancellationToken
         );
 
@@ -183,8 +192,10 @@ public sealed class AuditEventEndpointTests
             },
             TestContext.Current.CancellationToken
         );
-        using HttpClient client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "test-admin-token");
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        await LoginAsAdminAsync(client);
 
         using HttpResponseMessage response = await client.GetAsync(
             $"/api/v1/audit-events?eventType=SessionActionDenied&aggregateId={matchingAggregateId}&from=2026-05-23T10:00:00Z&to=2026-05-23T11:00:00Z",
@@ -217,8 +228,10 @@ public sealed class AuditEventEndpointTests
             })
             .ToArray();
         await factory.SeedAsync(events, TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "test-admin-token");
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        await LoginAsAdminAsync(client);
 
         using HttpResponseMessage defaultResponse = await client.GetAsync(
             "/api/v1/audit-events",
@@ -251,8 +264,10 @@ public sealed class AuditEventEndpointTests
     {
         await using AuditEventApiFactory factory = new();
         await factory.MigrateAsync(TestContext.Current.CancellationToken);
-        using HttpClient client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "test-admin-token");
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        await LoginAsAdminAsync(client);
 
         foreach (
             string path in new[]
@@ -272,6 +287,40 @@ public sealed class AuditEventEndpointTests
         }
     }
 
+    private static async Task LoginAsAdminAsync(HttpClient client)
+    {
+        using HttpResponseMessage loginResponse = await client.PostAsJsonAsync(
+            "/api/v1/admin/login",
+            new { username = "admin", password = "correct-password" },
+            TestContext.Current.CancellationToken
+        );
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task LoginAuditPayloadDoesNotContainPasswordsOrCookies()
+    {
+        await using AuditEventApiFactory factory = new();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+
+        await LoginAsAdminAsync(client);
+
+        await using AsyncServiceScope scope = factory.Services.CreateAsyncScope();
+        GatekeeperDbContext dbContext =
+            scope.ServiceProvider.GetRequiredService<GatekeeperDbContext>();
+        string payload = await dbContext
+            .AuditEvents.Where(auditEvent => auditEvent.EventType == "AdminLoginSucceeded")
+            .Select(auditEvent => auditEvent.PayloadJson)
+            .SingleAsync(TestContext.Current.CancellationToken);
+        Assert.DoesNotContain("correct-password", payload, StringComparison.Ordinal);
+        Assert.DoesNotContain("password", payload, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("cookie", payload, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("gatekeeper_admin", payload, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static async Task<JsonDocument> ParseAsync(HttpResponseMessage response)
     {
         return await JsonDocument.ParseAsync(
@@ -289,6 +338,9 @@ public sealed class AuditEventEndpointTests
             _databasePath = Path.Combine(Path.GetTempPath(), $"gatekeeper-{Guid.NewGuid():N}.db");
             Environment.SetEnvironmentVariable("GATEKEEPER_SQLITE_DATA_PATH", _databasePath);
             Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_TOKEN", adminToken);
+            Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_USERNAME", "admin");
+            Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_PASSWORD", "correct-password");
+            Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_COOKIE_SECURE", "false");
         }
 
         public async Task MigrateAsync(CancellationToken cancellationToken)
@@ -335,6 +387,9 @@ public sealed class AuditEventEndpointTests
             base.Dispose(disposing);
             Environment.SetEnvironmentVariable("GATEKEEPER_SQLITE_DATA_PATH", null);
             Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_TOKEN", null);
+            Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_USERNAME", null);
+            Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_PASSWORD", null);
+            Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_COOKIE_SECURE", null);
             if (File.Exists(_databasePath))
             {
                 File.Delete(_databasePath);

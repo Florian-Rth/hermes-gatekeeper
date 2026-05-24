@@ -150,6 +150,24 @@ public sealed class AuditEvent
         return CreateForAggregate("ActionCountExceeded", sessionId, occurredAt, payloadJson);
     }
 
+    public static AuditEvent CreateAdminLoginSucceeded(
+        DateTimeOffset occurredAt,
+        string payloadJson
+    )
+    {
+        return CreateSystem("AdminLoginSucceeded", occurredAt, payloadJson);
+    }
+
+    public static AuditEvent CreateAdminLoginFailed(DateTimeOffset occurredAt, string payloadJson)
+    {
+        return CreateSystem("AdminLoginFailed", occurredAt, payloadJson);
+    }
+
+    public static AuditEvent CreateAdminLogout(DateTimeOffset occurredAt, string payloadJson)
+    {
+        return CreateSystem("AdminLogout", occurredAt, payloadJson);
+    }
+
     public static AuditEvent Load(
         Guid id,
         string eventType,
@@ -184,5 +202,19 @@ public sealed class AuditEvent
         }
 
         return new AuditEvent(Guid.NewGuid(), eventType, aggregateId, occurredAt, payloadJson);
+    }
+
+    private static AuditEvent CreateSystem(
+        string eventType,
+        DateTimeOffset occurredAt,
+        string payloadJson
+    )
+    {
+        if (string.IsNullOrWhiteSpace(payloadJson))
+        {
+            throw new ArgumentException("Payload JSON is required.", nameof(payloadJson));
+        }
+
+        return new AuditEvent(Guid.NewGuid(), eventType, null, occurredAt, payloadJson);
     }
 }

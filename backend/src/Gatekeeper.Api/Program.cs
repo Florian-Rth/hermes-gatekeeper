@@ -2,7 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using FastEndpoints;
 using FastEndpoints.Swagger;
-using Gatekeeper.Api.AdminTokens;
+using Gatekeeper.Api.AdminAuthentication;
 using Gatekeeper.Application;
 using Gatekeeper.Infrastructure;
 using Gatekeeper.Infrastructure.Persistence;
@@ -10,7 +10,39 @@ using Microsoft.EntityFrameworkCore;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddScoped<IAdminTokenValidator, AdminTokenValidator>();
+AdminAuthOptions adminAuthOptions = new AdminAuthOptions(builder.Configuration);
+builder.Services.AddSingleton(adminAuthOptions);
+builder.Services.AddSingleton<AdminCredentialVerifier>();
+builder.Services.AddSingleton<AdminLoginRateLimiter>();
+builder.Services.AddScoped<AdminAuthAuditWriter>();
+builder.Services.AddScoped<AdminSessionGuard>();
+builder
+    .Services.AddAuthentication(AdminAuthConstants.Scheme)
+    .AddCookie(
+        AdminAuthConstants.Scheme,
+        options =>
+        {
+            options.Cookie.Name = adminAuthOptions.CookieName;
+            options.Cookie.HttpOnly = true;
+            options.Cookie.SameSite = SameSiteMode.Strict;
+            options.Cookie.SecurePolicy = adminAuthOptions.CookieSecure
+                ? CookieSecurePolicy.Always
+                : CookieSecurePolicy.None;
+            options.ExpireTimeSpan = TimeSpan.FromMinutes(adminAuthOptions.SessionIdleMinutes);
+            options.SlidingExpiration = true;
+            options.Events.OnRedirectToLogin = context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return Task.CompletedTask;
+            };
+            options.Events.OnRedirectToAccessDenied = context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return Task.CompletedTask;
+            };
+        }
+    );
+builder.Services.AddAuthorization();
 
 builder
     .Services.AddApplication()
@@ -22,6 +54,8 @@ WebApplication app = builder.Build();
 
 await ApplyMigrationsAsync(app, app.Lifetime.ApplicationStopping);
 
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseFastEndpoints(config =>
 {
     config.Serializer.Options.Converters.Add(

@@ -1,5 +1,5 @@
 using FastEndpoints;
-using Gatekeeper.Api.AdminTokens;
+using Gatekeeper.Api.AdminAuthentication;
 using Gatekeeper.Application.Sessions;
 
 namespace Gatekeeper.Api.Endpoints.Sessions;
@@ -7,12 +7,12 @@ namespace Gatekeeper.Api.Endpoints.Sessions;
 public sealed class RevokeSessionEndpoint : EndpointWithoutRequest<SessionLifecycleResponse>
 {
     private readonly ISessionService _sessions;
-    private readonly IAdminTokenValidator _adminTokenValidator;
+    private readonly AdminSessionGuard _adminSessionGuard;
 
-    public RevokeSessionEndpoint(ISessionService sessions, IAdminTokenValidator adminTokenValidator)
+    public RevokeSessionEndpoint(ISessionService sessions, AdminSessionGuard adminSessionGuard)
     {
         _sessions = sessions;
-        _adminTokenValidator = adminTokenValidator;
+        _adminSessionGuard = adminSessionGuard;
     }
 
     public override void Configure()
@@ -23,10 +23,7 @@ public sealed class RevokeSessionEndpoint : EndpointWithoutRequest<SessionLifecy
 
     public override async Task HandleAsync(CancellationToken ct)
     {
-        AdminTokenValidationResult tokenResult = _adminTokenValidator.Validate(
-            HttpContext.Request.Headers
-        );
-        if (tokenResult == AdminTokenValidationResult.MissingHeader)
+        if (!_adminSessionGuard.IsAuthenticated(HttpContext))
         {
             await Send.StringAsync(
                 string.Empty,
@@ -35,8 +32,7 @@ public sealed class RevokeSessionEndpoint : EndpointWithoutRequest<SessionLifecy
             );
             return;
         }
-
-        if (tokenResult == AdminTokenValidationResult.Forbidden)
+        if (!_adminSessionGuard.HasValidUnsafeRequestOrigin(HttpContext))
         {
             await Send.ForbiddenAsync(ct);
             return;
