@@ -2,9 +2,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { FC, ReactNode } from "react";
-import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AdminTokenProvider, useAdminToken } from "../../admin-token-context";
+import { AdminAuthProvider, adminAuthKeys } from "@/features/admin-auth";
 import { AuditFeed } from ".";
 
 const aggregateId = "22222222-2222-4222-8222-222222222222";
@@ -28,46 +27,31 @@ const emptyResponse = {
 };
 
 interface TestProvidersProps {
+  readonly authenticated?: boolean;
   readonly children: ReactNode;
 }
 
-interface TokenSetterProps {
-  readonly initialToken?: string;
-}
-
-const TestProviders: FC<TestProvidersProps> = ({ children }) => {
+const TestProviders: FC<TestProvidersProps> = ({ authenticated = true, children }) => {
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    defaultOptions: {
+      queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
+      mutations: { retry: false },
+    },
+  });
+  queryClient.setQueryData(adminAuthKeys.me, {
+    authenticated,
+    username: authenticated ? "admin" : "",
   });
   return (
     <QueryClientProvider client={queryClient}>
-      <AdminTokenProvider>{children}</AdminTokenProvider>
+      <AdminAuthProvider>{children}</AdminAuthProvider>
     </QueryClientProvider>
   );
 };
 
-const TokenSetter: FC<TokenSetterProps> = ({ initialToken = "" }) => {
-  const { adminToken, setAdminToken } = useAdminToken();
-
-  useEffect(() => {
-    if (adminToken === "" && initialToken !== "") {
-      setAdminToken(initialToken);
-    }
-  }, [adminToken, initialToken, setAdminToken]);
-
-  return (
-    <input
-      aria-label="test admin token"
-      value={adminToken}
-      onChange={(event) => setAdminToken(event.target.value)}
-    />
-  );
-};
-
-const renderAuditFeed = (initialToken = ""): void => {
+const renderAuditFeed = (authenticated = true): void => {
   render(
-    <TestProviders>
-      <TokenSetter initialToken={initialToken} />
+    <TestProviders authenticated={authenticated}>
       <AuditFeed.Root>
         <AuditFeed.Filters />
         <AuditFeed.ErrorState />
@@ -95,23 +79,23 @@ describe("AuditFeed", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders an admin-token warning and does not fetch without a token", (): void => {
+  it("renders an admin login warning and does not fetch without a session", (): void => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    renderAuditFeed();
+    renderAuditFeed(false);
 
-    expect(screen.getByText(/Enter the admin token to load audit events/)).toBeInTheDocument();
+    expect(screen.getByText(/Melde dich als Admin an/)).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("loads audit events with a token and shows event type, aggregate id, and details", async (): Promise<void> => {
+  it("loads audit events with an admin session and shows event type, aggregate id, and details", async (): Promise<void> => {
     vi.stubGlobal(
       "fetch",
       vi.fn(() => Promise.resolve(new Response(JSON.stringify(firstPageResponse)))),
     );
 
-    renderAuditFeed("secret-token");
+    renderAuditFeed();
 
     expect(await screen.findByText("session.revoked")).toBeInTheDocument();
     expect(screen.getByText(aggregateId)).toBeInTheDocument();
@@ -128,7 +112,7 @@ describe("AuditFeed", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
-    renderAuditFeed("secret-token");
+    renderAuditFeed();
 
     await screen.findByText(/No audit events match/);
     await user.type(screen.getByLabelText("Aggregate ID"), aggregateId);
@@ -156,7 +140,7 @@ describe("AuditFeed", () => {
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
-    renderAuditFeed("secret-token");
+    renderAuditFeed();
 
     await screen.findByText("session.revoked");
     await user.click(screen.getByRole("button", { name: "Next page" }));
@@ -173,7 +157,7 @@ describe("AuditFeed", () => {
       vi.fn(() => Promise.resolve(new Response(JSON.stringify(emptyResponse)))),
     );
 
-    renderAuditFeed("secret-token");
+    renderAuditFeed();
 
     expect(await screen.findByText(/No audit events match/)).toBeInTheDocument();
   });

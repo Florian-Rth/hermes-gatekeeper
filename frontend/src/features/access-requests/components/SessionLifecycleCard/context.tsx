@@ -10,7 +10,6 @@ interface SessionLifecycleCardContextValue {
   readonly isTerminal: boolean;
   readonly dummyCapability: DummyCapability | null;
   readonly canRevoke: boolean;
-  readonly adminTokenIsMissing: boolean;
   readonly isCompleting: boolean;
   readonly isRevoking: boolean;
   readonly isRunningDummyAction: boolean;

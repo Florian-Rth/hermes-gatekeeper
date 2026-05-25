@@ -2,7 +2,7 @@ import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
 import type { FC, ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { useAdminToken } from "../../admin-token-context";
+import { useAdminAuth } from "@/features/admin-auth";
 import { useAuditEvents } from "../../api";
 import type { AuditEventFilters } from "../../types";
 import { AuditFeedContext, type AuditFeedFilterValues } from "./context";
@@ -51,9 +51,9 @@ const getErrorMessage = (error: Error | null): string | null => {
 };
 
 export const Root: FC<RootProps> = ({ aggregateId = null, children }) => {
-  const { adminToken, adminTokenVersion } = useAdminToken();
+  const { session } = useAdminAuth();
   const [filters, setFilters] = useState<AuditFeedFilterValues>({
-    aggregateId: "",
+    aggregateId: aggregateId ?? "",
     eventType: "",
     from: "",
     to: "",
@@ -62,8 +62,8 @@ export const Root: FC<RootProps> = ({ aggregateId = null, children }) => {
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [cursorHistory, setCursorHistory] = useState<ReadonlyArray<string | undefined>>([]);
   const requestFilters = buildRequestFilters(filters, cursor);
-  const query = useAuditEvents(requestFilters, adminToken, adminTokenVersion);
-  const adminTokenIsMissing = adminToken.trim() === "";
+  const query = useAuditEvents(requestFilters, session.authenticated);
+  const adminTokenIsMissing = !session.authenticated;
   const events = query.data?.items ?? [];
   const nextCursor = query.data?.nextCursor ?? null;
   const isLoading = query.isLoading || query.isFetching;

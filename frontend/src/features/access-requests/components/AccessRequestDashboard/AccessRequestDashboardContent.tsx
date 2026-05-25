@@ -9,7 +9,6 @@ import { useAccessRequestDetails, useAccessRequests, useSessionDetails } from ".
 import type { ApprovalResult } from "../../types";
 import { AccessRequestDetails } from "../AccessRequestDetails";
 import { AccessRequestList } from "../AccessRequestList";
-import { AdminTokenPanel } from "../AdminTokenPanel";
 import { AuditFeed } from "../AuditFeed";
 import { RequestDecisionPanel } from "../RequestDecisionPanel";
 
@@ -51,7 +50,6 @@ export const AccessRequestDashboardContent: FC = () => {
       <Container maxWidth="xl">
         <Stack sx={{ gap: 3 }}>
           <AppHeader title={appConfig.appName} />
-          <AdminTokenPanel />
           <Stack direction={{ xs: "column", lg: "row" }} sx={{ alignItems: "stretch", gap: 3 }}>
             <Stack sx={{ width: { xs: "100%", lg: "38%" } }}>
               <AccessRequestList

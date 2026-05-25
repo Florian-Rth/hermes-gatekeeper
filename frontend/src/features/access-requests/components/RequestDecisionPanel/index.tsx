@@ -5,7 +5,6 @@ import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import type { ChangeEvent, FC } from "react";
-import { useAdminToken } from "../../admin-token-context";
 import { useApproveAccessRequest, useDenyAccessRequest } from "../../api";
 import type { AccessRequestDetails, ApprovalResult, SessionDetails } from "../../types";
 import { SessionLifecycleCard } from "../SessionLifecycleCard";
@@ -36,12 +35,9 @@ export const RequestDecisionPanel: FC<RequestDecisionPanelProps> = ({
   isSessionLoading,
   onApproved,
 }) => {
-  const { adminToken } = useAdminToken();
   const approveMutation = useApproveAccessRequest();
   const denyMutation = useDenyAccessRequest();
-  const trimmedAdminToken = adminToken.trim();
-  const canDecide =
-    request !== undefined && request.status === "pending" && trimmedAdminToken !== "";
+  const canDecide = request !== undefined && request.status === "pending";
 
   const handleCommentChange = (event: ChangeEvent<HTMLInputElement>): void => {
     onCommentChange(event.target.value);
@@ -52,7 +48,7 @@ export const RequestDecisionPanel: FC<RequestDecisionPanelProps> = ({
       return;
     }
     approveMutation.mutate(
-      { id: request.id, adminToken: trimmedAdminToken, comment },
+      { id: request.id, comment },
       { onSuccess: (result) => onApproved(result) },
     );
   };
@@ -61,7 +57,7 @@ export const RequestDecisionPanel: FC<RequestDecisionPanelProps> = ({
     if (request === undefined) {
       return;
     }
-    denyMutation.mutate({ id: request.id, adminToken: trimmedAdminToken, comment });
+    denyMutation.mutate({ id: request.id, comment });
   };
 
   const errorMessage =
@@ -81,9 +77,7 @@ export const RequestDecisionPanel: FC<RequestDecisionPanelProps> = ({
         {request !== undefined && request.status !== "pending" ? (
           <Alert severity="info">This request is already {request.status.toLowerCase()}.</Alert>
         ) : null}
-        {request !== undefined && request.status === "pending" && trimmedAdminToken === "" ? (
-          <Alert severity="warning">Enter the admin token before approving or denying.</Alert>
-        ) : null}
+
         <TextField
           fullWidth
           label="Optional decision comment"
@@ -94,7 +88,7 @@ export const RequestDecisionPanel: FC<RequestDecisionPanelProps> = ({
         />
         {errorMessage === null ? null : (
           <Alert severity="error">
-            Action failed. Check the admin token or request status. {errorMessage}
+            Action failed. Check the admin session or request status. {errorMessage}
           </Alert>
         )}
         <Stack direction={{ xs: "column", sm: "row" }} sx={{ gap: 2 }}>

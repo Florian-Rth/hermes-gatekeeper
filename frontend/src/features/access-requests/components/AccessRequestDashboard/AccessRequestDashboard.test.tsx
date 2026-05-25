@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { FC, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { AdminAuthGate, AdminAuthProvider, adminAuthKeys } from "@/features/admin-auth";
 import { AccessRequestDashboard } from ".";
 
 const requestId = "11111111-1111-4111-8111-111111111111";
@@ -76,39 +77,36 @@ const auditResponse = {
 };
 
 interface TestProvidersProps {
+  readonly authenticated?: boolean;
   readonly children: ReactNode;
 }
 
-const TestProviders: FC<TestProvidersProps> = ({ children }) => {
+const TestProviders: FC<TestProvidersProps> = ({ authenticated = true, children }) => {
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    defaultOptions: {
+      queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
+      mutations: { retry: false },
+    },
   });
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
-};
-
-const renderDashboard = (): void => {
-  render(
-    <TestProviders>
-      <AccessRequestDashboard />
-    </TestProviders>,
+  queryClient.setQueryData(adminAuthKeys.me, {
+    authenticated,
+    username: authenticated ? "admin" : "",
+  });
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AdminAuthProvider>{children}</AdminAuthProvider>
+    </QueryClientProvider>
   );
 };
 
-const getHeaderValue = (headers: HeadersInit | undefined, name: string): string | null => {
-  if (headers === undefined) {
-    return null;
-  }
-
-  if (headers instanceof Headers) {
-    return headers.get(name);
-  }
-
-  if (Array.isArray(headers)) {
-    const headerEntry = headers.find(([headerName]) => headerName === name);
-    return headerEntry?.[1] ?? null;
-  }
-
-  return headers[name] ?? null;
+const renderDashboard = (authenticated = true): void => {
+  render(
+    <TestProviders authenticated={authenticated}>
+      <AdminAuthGate>
+        <AccessRequestDashboard />
+      </AdminAuthGate>
+    </TestProviders>,
+  );
 };
 
 describe("AccessRequestDashboard", () => {
@@ -138,7 +136,7 @@ describe("AccessRequestDashboard", () => {
     expect(screen.getByText("ticket: INC-7")).toBeInTheDocument();
   });
 
-  it("approves a request with the admin token header and can run a dummy action", async (): Promise<void> => {
+  it("approves a request without an admin token header and can run a dummy action", async (): Promise<void> => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url === "/api/v1/access-requests" && init?.method !== "POST") {
@@ -167,7 +165,6 @@ describe("AccessRequestDashboard", () => {
     localStorage.clear();
     sessionStorage.clear();
 
-    await user.type(screen.getByLabelText("X-Gatekeeper-Admin-Token"), "secret-token");
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
     await user.type(screen.getByLabelText("Optional decision comment"), "Looks safe");
@@ -177,8 +174,8 @@ describe("AccessRequestDashboard", () => {
     const approveCall = fetchMock.mock.calls.find((call) =>
       call[0].toString().endsWith("/approve"),
     );
-    expect(approveCall?.[1]?.headers).toMatchObject({
-      "X-Gatekeeper-Admin-Token": "secret-token",
+    expect(approveCall?.[1]?.headers).not.toMatchObject({
+      "X-Gatekeeper-Admin-Token": expect.any(String),
     });
 
     await screen.findByRole("button", { name: "Run test.echo" });
@@ -204,31 +201,27 @@ describe("AccessRequestDashboard", () => {
       return Promise.resolve(new Response(JSON.stringify(detailsResponse)));
     });
     vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
 
     renderDashboard();
 
     expect(await screen.findByText("Audit events")).toBeInTheDocument();
     await screen.findByText("Inspect service logs");
-    await user.type(screen.getByLabelText("X-Gatekeeper-Admin-Token"), "secret-token");
 
     expect(await screen.findByText("access_request.created")).toBeInTheDocument();
     expect(screen.getAllByText(requestId).length).toBeGreaterThan(0);
 
     await waitFor(() => {
-      const auditCall = fetchMock.mock.calls.find(
-        (call) =>
-          call[0].toString().startsWith("/api/v1/audit-events") &&
-          getHeaderValue(call[1]?.headers, "X-Gatekeeper-Admin-Token") === "secret-token",
+      const auditCall = fetchMock.mock.calls.find((call) =>
+        call[0].toString().includes(`aggregateId=${requestId}`),
       );
       expect(auditCall?.[0].toString()).toContain(`aggregateId=${requestId}`);
-      expect(getHeaderValue(auditCall?.[1]?.headers, "X-Gatekeeper-Admin-Token")).toBe(
-        "secret-token",
-      );
+      expect(auditCall?.[1]?.headers).not.toMatchObject({
+        "X-Gatekeeper-Admin-Token": expect.any(String),
+      });
     });
   });
 
-  it("does not fetch audit events without an admin token", async (): Promise<void> => {
+  it("does not fetch audit events without an authenticated admin session", async (): Promise<void> => {
     const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
       const url = input.toString();
       if (url === "/api/v1/access-requests") {
@@ -244,14 +237,9 @@ describe("AccessRequestDashboard", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    renderDashboard();
+    renderDashboard(false);
 
-    expect(await screen.findByText("Audit events")).toBeInTheDocument();
-    expect(screen.getByText(/Enter the admin token to load audit events/)).toBeInTheDocument();
-    await screen.findByText("Need to verify a failing health check.");
-
-    expect(
-      fetchMock.mock.calls.some((call) => call[0].toString().startsWith("/api/v1/audit-events")),
-    ).toBe(false);
+    expect(await screen.findByText("Lokaler Admin-Login")).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

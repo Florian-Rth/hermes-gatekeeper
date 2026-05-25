@@ -108,7 +108,7 @@ describe("access request api boundary", () => {
     ).toMatchObject({ status: "revoked" });
   });
 
-  it("revokes a session with the admin token header", async (): Promise<void> => {
+  it("revokes a session without sending an admin token header", async (): Promise<void> => {
     const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
       if (input.toString() === `/api/v1/sessions/${sessionId}/revoke`) {
         return Promise.resolve(new Response(JSON.stringify(revokedSessionResponse)));
@@ -120,7 +120,7 @@ describe("access request api boundary", () => {
     const RevokeHarness: FC = () => {
       const mutation = useRevokeSession();
       useEffect(() => {
-        mutation.mutate({ sessionId, adminToken: "secret-token" });
+        mutation.mutate({ sessionId });
       }, [mutation]);
       return null;
     };
@@ -135,8 +135,9 @@ describe("access request api boundary", () => {
       const revokeCall = fetchMock.mock.calls.find((call) =>
         call[0].toString().endsWith("/revoke"),
       );
-      expect(revokeCall?.[1]?.headers).toMatchObject({
-        "X-Gatekeeper-Admin-Token": "secret-token",
+      expect(revokeCall).toBeDefined();
+      expect(revokeCall?.[1]?.headers).not.toMatchObject({
+        "X-Gatekeeper-Admin-Token": expect.any(String),
       });
     });
   });
@@ -161,8 +162,8 @@ describe("access request api boundary", () => {
       const approveMutation = useApproveAccessRequest();
       const denyMutation = useDenyAccessRequest();
       useEffect(() => {
-        approveMutation.mutate({ id: requestId, adminToken: "secret-token", comment: "ok" });
-        denyMutation.mutate({ id: requestId, adminToken: "secret-token", comment: "no" });
+        approveMutation.mutate({ id: requestId, comment: "ok" });
+        denyMutation.mutate({ id: requestId, comment: "no" });
       }, [approveMutation, denyMutation]);
       return null;
     };
@@ -241,8 +242,7 @@ describe("access request api boundary", () => {
           cursor: "cursor+one",
           limit: 25,
         },
-        "secret-token",
-        1,
+        true,
       );
       return null;
     };
@@ -261,19 +261,19 @@ describe("access request api boundary", () => {
     expect(input.toString()).toBe(
       `/api/v1/audit-events?aggregateId=${sessionId}&eventType=Session+Revoked&from=2026-05-23T10%3A00%3A00Z&to=2026-05-23T11%3A00%3A00Z&cursor=cursor%2Bone&limit=25`,
     );
-    expect(init?.headers).toMatchObject({
-      "X-Gatekeeper-Admin-Token": "secret-token",
+    expect(init?.headers).not.toMatchObject({
+      "X-Gatekeeper-Admin-Token": expect.any(String),
     });
   });
 
-  it("does not load audit events until an admin token is present", (): void => {
+  it("does not load audit events when disabled", (): void => {
     const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
       Promise.resolve(new Response(JSON.stringify({ items: [], nextCursor: null }))),
     );
     vi.stubGlobal("fetch", fetchMock);
 
     const AuditHarness: FC = () => {
-      useAuditEvents({ aggregateId: sessionId }, "   ", 0);
+      useAuditEvents({ aggregateId: sessionId }, false);
       return null;
     };
 
@@ -286,7 +286,7 @@ describe("access request api boundary", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("refetches audit events when the admin token changes without storing the token in the query key", async (): Promise<void> => {
+  it("uses audit event query keys without admin secrets", async (): Promise<void> => {
     const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
       Promise.resolve(new Response(JSON.stringify({ items: [], nextCursor: null }))),
     );
@@ -295,114 +295,28 @@ describe("access request api boundary", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    interface AuditHarnessProps {
-      readonly adminToken: string;
-      readonly adminTokenVersion: number;
-    }
-
-    const AuditHarness: FC<AuditHarnessProps> = ({ adminToken, adminTokenVersion }) => {
-      useAuditEvents({ aggregateId: sessionId }, adminToken, adminTokenVersion);
+    const AuditHarness: FC = () => {
+      useAuditEvents({ aggregateId: sessionId });
       return null;
     };
-
-    const { rerender } = render(
-      <TestProviders queryClient={queryClient}>
-        <AuditHarness adminToken="first-token" adminTokenVersion={1} />
-      </TestProviders>,
-    );
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-    });
-
-    rerender(
-      <TestProviders queryClient={queryClient}>
-        <AuditHarness adminToken="second-token" adminTokenVersion={2} />
-      </TestProviders>,
-    );
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-    });
-    expect(fetchMock.mock.calls[0][1]?.headers).toMatchObject({
-      "X-Gatekeeper-Admin-Token": "first-token",
-    });
-    expect(fetchMock.mock.calls[1][1]?.headers).toMatchObject({
-      "X-Gatekeeper-Admin-Token": "second-token",
-    });
-
-    const queryKeys = queryClient
-      .getQueryCache()
-      .getAll()
-      .map((query) => query.queryKey);
-    const serializedQueryKeys = JSON.stringify(queryKeys);
-    expect(serializedQueryKeys).not.toContain("first-token");
-    expect(serializedQueryKeys).not.toContain("second-token");
-  });
-
-  it("uses distinct audit event query keys for token versions across remounts", async (): Promise<void> => {
-    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
-      Promise.resolve(new Response(JSON.stringify({ items: [], nextCursor: null }))),
-    );
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
-        mutations: { retry: false },
-      },
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    interface AuditHarnessProps {
-      readonly adminToken: string;
-      readonly adminTokenVersion: number;
-    }
-
-    const filters = { aggregateId: sessionId };
-
-    const AuditHarness: FC<AuditHarnessProps> = ({ adminToken, adminTokenVersion }) => {
-      useAuditEvents(filters, adminToken, adminTokenVersion);
-      return null;
-    };
-
-    const firstRender = render(
-      <TestProviders queryClient={queryClient}>
-        <AuditHarness adminToken="first-initial-token" adminTokenVersion={1} />
-      </TestProviders>,
-    );
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-    });
-
-    firstRender.unmount();
 
     render(
       <TestProviders queryClient={queryClient}>
-        <AuditHarness adminToken="second-initial-token" adminTokenVersion={2} />
+        <AuditHarness />
       </TestProviders>,
     );
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
-    expect(fetchMock.mock.calls[0][1]?.headers).toMatchObject({
-      "X-Gatekeeper-Admin-Token": "first-initial-token",
-    });
-    expect(fetchMock.mock.calls[1][1]?.headers).toMatchObject({
-      "X-Gatekeeper-Admin-Token": "second-initial-token",
-    });
-
-    const auditQueryKeys = queryClient
-      .getQueryCache()
-      .getAll()
-      .map((query) => query.queryKey)
-      .filter((queryKey) => queryKey[0] === "audit-events");
-    expect(auditQueryKeys).toHaveLength(2);
-    expect(new Set(auditQueryKeys.map((queryKey) => JSON.stringify(queryKey))).size).toBe(2);
-
-    const serializedAuditQueryKeys = JSON.stringify(auditQueryKeys);
-    expect(serializedAuditQueryKeys).not.toContain("first-initial-token");
-    expect(serializedAuditQueryKeys).not.toContain("second-initial-token");
+    const serializedQueryKeys = JSON.stringify(
+      queryClient
+        .getQueryCache()
+        .getAll()
+        .map((query) => query.queryKey),
+    );
+    expect(serializedQueryKeys).not.toContain("token");
+    expect(serializedQueryKeys).not.toContain("password");
   });
 });

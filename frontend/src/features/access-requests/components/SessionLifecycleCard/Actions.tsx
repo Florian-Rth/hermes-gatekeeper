@@ -11,7 +11,6 @@ export const Actions: FC = () => {
     isTerminal,
     dummyCapability,
     canRevoke,
-    adminTokenIsMissing,
     isCompleting,
     isRevoking,
     isRunningDummyAction,
@@ -27,9 +26,6 @@ export const Actions: FC = () => {
   return (
     <Stack sx={{ gap: 1.5 }}>
       {isTerminal ? <Alert severity="info">This session is terminal and read-only.</Alert> : null}
-      {isActive && adminTokenIsMissing ? (
-        <Alert severity="warning">Enter the admin token to revoke this session.</Alert>
-      ) : null}
       <Stack direction={{ xs: "column", sm: "row" }} sx={{ gap: 1 }}>
         <Button disabled={!isActive || isCompleting} onClick={onComplete} variant="contained">
           {isCompleting ? "Completing..." : "Complete session"}

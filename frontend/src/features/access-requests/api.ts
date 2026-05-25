@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { requestJson } from "@/lib/apiClient";
+import { setAdminSessionExpired } from "@/features/admin-auth/api";
+import { ApiError, requestJson } from "@/lib/apiClient";
 import {
   accessRequestDetailsSchema,
   approvalResultSchema,
@@ -24,7 +25,6 @@ import type {
 
 interface DecisionVariables {
   readonly id: string;
-  readonly adminToken: string;
   readonly comment: string;
 }
 
@@ -37,9 +37,7 @@ interface SessionLifecycleVariables {
   readonly sessionId: string;
 }
 
-interface RevokeSessionVariables extends SessionLifecycleVariables {
-  readonly adminToken: string;
-}
+type RevokeSessionVariables = SessionLifecycleVariables;
 
 const accessRequestKeys = {
   all: ["access-requests"] as const,
@@ -53,8 +51,16 @@ const sessionKeys = {
 
 const auditEventKeys = {
   all: ["audit-events"] as const,
-  list: (filters: AuditEventFilters, adminTokenVersion: number) =>
-    ["audit-events", filters, adminTokenVersion] as const,
+  list: (filters: AuditEventFilters) => ["audit-events", filters] as const,
+};
+
+const handleAdminSessionError = (
+  error: Error,
+  queryClient: ReturnType<typeof useQueryClient>,
+): void => {
+  if (error instanceof ApiError && error.status === 401) {
+    setAdminSessionExpired(queryClient);
+  }
 };
 
 const appendFilter = (
@@ -101,12 +107,12 @@ export const useAccessRequestDetails = (id: string | null) =>
 export const useApproveAccessRequest = () => {
   const queryClient = useQueryClient();
   return useMutation<ApprovalResult, Error, DecisionVariables>({
-    mutationFn: async ({ id, adminToken, comment }) =>
+    mutationFn: async ({ id, comment }) =>
       requestJson(`/api/v1/access-requests/${id}/approve`, approvalResultSchema, {
         method: "POST",
-        headers: { "X-Gatekeeper-Admin-Token": adminToken },
         body: { comment },
       }),
+    onError: (error) => handleAdminSessionError(error, queryClient),
     onSuccess: async (_data, variables) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: accessRequestKeys.all }),
@@ -120,12 +126,12 @@ export const useApproveAccessRequest = () => {
 export const useDenyAccessRequest = () => {
   const queryClient = useQueryClient();
   return useMutation<DenialResult, Error, DecisionVariables>({
-    mutationFn: async ({ id, adminToken, comment }) =>
+    mutationFn: async ({ id, comment }) =>
       requestJson(`/api/v1/access-requests/${id}/deny`, denialResultSchema, {
         method: "POST",
-        headers: { "X-Gatekeeper-Admin-Token": adminToken },
         body: { comment },
       }),
+    onError: (error) => handleAdminSessionError(error, queryClient),
     onSuccess: async (_data, variables) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: accessRequestKeys.all }),
@@ -162,11 +168,11 @@ export const useCompleteSession = () => {
 export const useRevokeSession = () => {
   const queryClient = useQueryClient();
   return useMutation<SessionLifecycleResponse, Error, RevokeSessionVariables>({
-    mutationFn: async ({ sessionId, adminToken }) =>
+    mutationFn: async ({ sessionId }) =>
       requestJson(`/api/v1/sessions/${sessionId}/revoke`, sessionLifecycleResponseSchema, {
         method: "POST",
-        headers: { "X-Gatekeeper-Admin-Token": adminToken },
       }),
+    onError: (error) => handleAdminSessionError(error, queryClient),
     onSuccess: async (_data, variables) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: sessionKeys.detail(variables.sessionId) }),
@@ -176,19 +182,21 @@ export const useRevokeSession = () => {
   });
 };
 
-export const useAuditEvents = (
-  filters: AuditEventFilters,
-  adminToken: string,
-  adminTokenVersion: number,
-) => {
-  const trimmedAdminToken = adminToken.trim();
+export const useAuditEvents = (filters: AuditEventFilters, enabled = true) => {
+  const queryClient = useQueryClient();
   return useQuery<ListAuditEventsResponse>({
-    queryKey: auditEventKeys.list(filters, adminTokenVersion),
-    enabled: trimmedAdminToken.length > 0,
-    queryFn: async () =>
-      requestJson(buildAuditEventsPath(filters), listAuditEventsResponseSchema, {
-        headers: { "X-Gatekeeper-Admin-Token": trimmedAdminToken },
-      }),
+    queryKey: auditEventKeys.list(filters),
+    enabled,
+    queryFn: async () => {
+      try {
+        return await requestJson(buildAuditEventsPath(filters), listAuditEventsResponseSchema);
+      } catch (error) {
+        if (error instanceof Error) {
+          handleAdminSessionError(error, queryClient);
+        }
+        throw error;
+      }
+    },
   });
 };
 

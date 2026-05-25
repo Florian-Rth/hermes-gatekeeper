@@ -3,7 +3,6 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { FC, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AdminTokenProvider, useAdminToken } from "../../admin-token-context";
 import type { SessionDetails } from "../../types";
 import { SessionLifecycleCard } from ".";
 
@@ -36,28 +35,12 @@ const TestProviders: FC<TestProvidersProps> = ({ children }) => {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return (
-    <QueryClientProvider client={queryClient}>
-      <AdminTokenProvider>{children}</AdminTokenProvider>
-    </QueryClientProvider>
-  );
-};
-
-const TokenSetter: FC = () => {
-  const { adminToken, setAdminToken } = useAdminToken();
-  return (
-    <input
-      aria-label="test admin token"
-      value={adminToken}
-      onChange={(event) => setAdminToken(event.target.value)}
-    />
-  );
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
 };
 
 const renderCard = (session: SessionDetails | undefined = activeSession): void => {
   render(
     <TestProviders>
-      <TokenSetter />
       <SessionLifecycleCard.Root session={session} isLoading={false}>
         <SessionLifecycleCard.Header />
         <SessionLifecycleCard.StatusBadge />
@@ -127,7 +110,7 @@ describe("SessionLifecycleCard", () => {
     });
   });
 
-  it("requires confirmation and sends revoke requests with the admin token header", async (): Promise<void> => {
+  it("requires confirmation and sends revoke requests without an admin token header", async (): Promise<void> => {
     const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
       if (input.toString() === `/api/v1/sessions/${activeSession.id}/revoke`) {
         return Promise.resolve(
@@ -151,10 +134,6 @@ describe("SessionLifecycleCard", () => {
     const user = userEvent.setup();
 
     renderCard();
-    expect(screen.getByRole("button", { name: "Revoke session" })).toBeDisabled();
-    expect(screen.getByText("Enter the admin token to revoke this session.")).toBeInTheDocument();
-
-    await user.type(screen.getByLabelText("test admin token"), "secret-token");
     await user.click(screen.getByRole("button", { name: "Revoke session" }));
     expect(screen.getByRole("dialog", { name: "Confirm session revocation" })).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
@@ -166,8 +145,8 @@ describe("SessionLifecycleCard", () => {
         call[0].toString().endsWith("/revoke"),
       );
       expect(revokeCall?.[1]?.method).toBe("POST");
-      expect(revokeCall?.[1]?.headers).toMatchObject({
-        "X-Gatekeeper-Admin-Token": "secret-token",
+      expect(revokeCall?.[1]?.headers).not.toMatchObject({
+        "X-Gatekeeper-Admin-Token": expect.any(String),
       });
     });
   });

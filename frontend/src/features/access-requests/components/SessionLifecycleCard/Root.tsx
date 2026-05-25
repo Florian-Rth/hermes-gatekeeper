@@ -11,7 +11,6 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import type { FC, ReactNode } from "react";
 import { useState } from "react";
-import { useAdminToken } from "../../admin-token-context";
 import { useCompleteSession, useExecuteDummyAction, useRevokeSession } from "../../api";
 import type { SessionActionResult, SessionDetails } from "../../types";
 import { SessionLifecycleCardContext } from "./context";
@@ -54,7 +53,6 @@ const getDummyActionMessage = (result: SessionActionResult | undefined): string 
 };
 
 export const Root: FC<RootProps> = ({ session, isLoading, children }) => {
-  const { adminToken } = useAdminToken();
   const completeMutation = useCompleteSession();
   const revokeMutation = useRevokeSession();
   const actionMutation = useExecuteDummyAction();
@@ -62,8 +60,7 @@ export const Root: FC<RootProps> = ({ session, isLoading, children }) => {
   const isActive = getIsActive(session);
   const isTerminal = getIsTerminal(session);
   const dummyCapability = getDummyCapability(session);
-  const adminTokenIsMissing = adminToken.trim() === "";
-  const canRevoke = isActive && !adminTokenIsMissing;
+  const canRevoke = isActive;
 
   const handleComplete = (): void => {
     if (session === undefined || !isActive) {
@@ -88,7 +85,7 @@ export const Root: FC<RootProps> = ({ session, isLoading, children }) => {
       return;
     }
     revokeMutation.mutate(
-      { sessionId: session.id, adminToken: adminToken.trim() },
+      { sessionId: session.id },
       { onSuccess: () => setIsRevokeDialogOpen(false) },
     );
   };
@@ -113,7 +110,6 @@ export const Root: FC<RootProps> = ({ session, isLoading, children }) => {
         isTerminal,
         dummyCapability,
         canRevoke,
-        adminTokenIsMissing,
         isCompleting: completeMutation.isPending,
         isRevoking: revokeMutation.isPending,
         isRunningDummyAction: actionMutation.isPending,

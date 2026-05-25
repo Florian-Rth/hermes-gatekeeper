@@ -6,7 +6,7 @@ export const EmptyState: FC = () => {
   const { adminTokenIsMissing, events, hasLoaded, isError, isLoading } = useAuditFeedContext();
 
   if (adminTokenIsMissing) {
-    return <Alert severity="warning">Enter the admin token to load audit events.</Alert>;
+    return <Alert severity="warning">Melde dich als Admin an, um Audit-Events zu laden.</Alert>;
   }
 
   if (isLoading || isError || !hasLoaded || events.length > 0) {
