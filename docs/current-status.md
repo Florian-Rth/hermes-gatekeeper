@@ -1,20 +1,20 @@
 # Hermes Gatekeeper — Current Project Status
 
-Last updated: 2026-05-24
+Last updated: 2026-05-25
 Current branch: `main`
-Latest product/deploy commit: `8a3e345 feat: add session lifecycle audit ui`
+Latest product/deploy commit: `2cfe218 feat: replace admin token UI with login session`
 
 ## Executive Summary
 
-Hermes Gatekeeper has a working backend MVP core through Phase 5 and a session lifecycle/audit web UI through Phase 6:
+Hermes Gatekeeper has a working backend MVP core through Phase 5, a session lifecycle/audit web UI through Phase 6, and local admin cookie authentication through Phase 7:
 
 ```text
-Access Request -> Approve/Deny -> Session -> Execute typed dummy action -> Lifecycle controls in UI -> Audit browsing UI
+Access Request -> Admin Login -> Approve/Deny -> Session -> Execute typed dummy action -> Lifecycle controls in UI -> Audit browsing UI
 ```
 
-The backend is implemented with .NET 10, ASP.NET Core/FastEndpoints, EF Core, SQLite, migrations, and integration tests. The frontend now has a minimal browser dashboard for listing requests, reviewing details, entering the static admin token, approving/denying, viewing the created session summary, and optionally running a dummy session action.
+The backend is implemented with .NET 10, ASP.NET Core/FastEndpoints, EF Core, SQLite, migrations, and integration tests. The frontend now has a browser dashboard for listing requests, reviewing details, logging in as local admin, approving/denying, viewing session lifecycle state, running allowed dummy actions, and browsing audit events.
 
-Phase 5 added backend session lifecycle controls, action-budget enforcement, lazy expiry, and an admin audit listing API. Phase 6 exposed those capabilities in the web UI with compound SessionLifecycleCard and AuditFeed components. Future agents should treat the backend action loop, lifecycle controls, audit API, and lifecycle/audit UI as implemented and validated. Do not re-plan or rebuild Phases 0-6 unless the repository state contradicts this document.
+Phase 5 added backend session lifecycle controls, action-budget enforcement, lazy expiry, and an admin audit listing API. Phase 6 exposed those capabilities in the web UI with compound SessionLifecycleCard and AuditFeed components. Phase 7 replaced the manually entered visible admin token with local admin login and HttpOnly cookie-backed browser session auth for admin operations. Future agents should treat the backend action loop, lifecycle controls, audit API, lifecycle/audit UI, and local admin login/session flow as implemented and validated. Do not re-plan or rebuild Phases 0-7 unless the repository state contradicts this document.
 
 ## Implemented and Committed
 
@@ -294,6 +294,61 @@ Important current limitation:
 - There is still no full admin login/cookie auth; the UI uses the existing manually entered static admin token.
 - There is no global session list endpoint/UI; the UI works with known sessions from the request/approval flow.
 
+### Phase 7 — Admin Authentication Hardening
+
+Backend commit: `a4a4ced feat: add local admin cookie authentication`
+Frontend commit: `2cfe218 feat: replace admin token UI with login session`
+
+Implemented:
+
+- Phase plan: `docs/phase-7-admin-authentication-hardening.md`.
+- Local single-admin authentication using environment-seeded credentials:
+  - `GATEKEEPER_ADMIN_USERNAME`
+  - `GATEKEEPER_ADMIN_PASSWORD`
+  - `GATEKEEPER_ADMIN_COOKIE_SECURE`
+  - `GATEKEEPER_ADMIN_SESSION_IDLE_MINUTES`
+- Admin session endpoints:
+  - `POST /api/v1/admin/login`
+  - `POST /api/v1/admin/logout`
+  - `GET /api/v1/admin/me`
+- HttpOnly cookie-backed browser admin session with SameSite/Secure settings and local-development Secure override.
+- Minimal same-origin/CSRF protection for unsafe cookie-authenticated admin requests.
+- In-memory login rate limiting.
+- Admin audit events:
+  - `AdminLoginSucceeded`
+  - `AdminLoginFailed`
+  - `AdminLogout`
+- Admin-protected operations now use the admin cookie session instead of `X-Gatekeeper-Admin-Token`:
+  - approve
+  - deny
+  - revoke
+  - audit event listing
+- `POST /api/v1/sessions/{id}/complete` remains unchanged and is not silently moved behind admin auth.
+- Frontend admin-auth feature module under `frontend/src/features/admin-auth`.
+- `AdminAuthProvider`, `AdminAuthGate`, and local login panel.
+- App header shows authenticated admin username and logout action.
+- API client sends same-origin credentials so HttpOnly cookies can be used without exposing session secrets to JavaScript.
+- Frontend tests cover login, failed login, logout, explicit session expiry handling, protected admin operations without token headers, and audit filtering.
+
+Validation for Phase 7:
+
+- Backend `dotnet restore/build/test`: passed, 128/128 tests.
+- Backend CSharpier check: passed.
+- `docker compose config`: passed.
+- `docker compose build backend`: passed.
+- `cd frontend && pnpm check`: passed.
+- `cd frontend && pnpm test -- --run`: passed, 28/28 tests.
+- `cd frontend && pnpm build`: passed.
+- `docker compose build frontend`: passed.
+- Spec review: PASS.
+- Frontend quality/security review: APPROVED.
+
+Important current limitation:
+
+- Local single-admin auth only; no OIDC, TOTP, Passkeys/WebAuthn, mTLS, or multi-admin approval.
+- Login rate limiting is in-memory only.
+- No global session list endpoint/UI; the UI works with known sessions from the request/approval flow.
+
 ## Current API Surface
 
 ### Health
@@ -308,16 +363,21 @@ Important current limitation:
 - `POST /api/v1/access-requests/{id}/approve`
 - `POST /api/v1/access-requests/{id}/deny`
 
-Approval/deny requires:
+Approval/deny requires an authenticated admin browser session. The UI obtains it via `POST /api/v1/admin/login` and the browser sends the HttpOnly admin cookie on same-origin requests.
 
-```http
-X-Gatekeeper-Admin-Token: <token>
-```
+### Admin Auth
 
-Server-side token source:
+- `POST /api/v1/admin/login`
+- `POST /api/v1/admin/logout`
+- `GET /api/v1/admin/me`
+
+Configured by:
 
 ```text
-GATEKEEPER_ADMIN_TOKEN
+GATEKEEPER_ADMIN_USERNAME
+GATEKEEPER_ADMIN_PASSWORD
+GATEKEEPER_ADMIN_COOKIE_SECURE
+GATEKEEPER_ADMIN_SESSION_IDLE_MINUTES
 ```
 
 ### Sessions
@@ -343,11 +403,7 @@ Session action request shape:
 
 - `GET /api/v1/audit-events`
 
-Audit listing requires:
-
-```http
-X-Gatekeeper-Admin-Token: <token>
-```
+Audit listing requires an authenticated admin browser session.
 
 Supported filters:
 
@@ -375,7 +431,6 @@ Session action success response shape:
 
 These are not bugs in the current phase; they are intentionally deferred scope:
 
-- No full admin login/cookie auth yet.
 - No global session list endpoint/UI yet.
 - No action history UI beyond the audit event API.
 - No agent authentication for request creation/action execution beyond current MVP boundaries.
@@ -386,22 +441,19 @@ These are not bugs in the current phase; they are intentionally deferred scope:
 
 ## Recommended Next Phase
 
-Recommended next phase: Admin authentication hardening.
-
-Status: detailed phase plan created in `docs/phase-7-admin-authentication-hardening.md`.
+Recommended next phase: MVP hardening / release-candidate preparation before real target adapters.
 
 Reason:
 
-- The backend and UI now support request approval, session lifecycle controls, action budget visibility, and audit browsing.
-- The most important remaining product/security gap is still the manually entered static admin token.
-- Replacing static token entry with a local admin login/session model would make the UI safer and more usable before adding productive adapters.
+- The full dummy MVP flow now works behind local admin login, session lifecycle controls, action budget visibility, and audit browsing.
+- Before adding productive adapters, the project should tighten documentation, error responses, demo flow, security headers/CORS posture, and release-readiness checks.
 
 Suggested scope:
 
-- Design a small local admin authentication model.
-- Replace manual token entry with a secure browser session.
-- Preserve explicit approval boundaries and auditability.
 - Keep productive adapters, raw shell, OIDC, mTLS, TOTP, Passkeys, and multi-admin approval out of the immediate next phase unless explicitly chosen.
+- Polish README demo flow and operational guidance.
+- Add final MVP integration/security checks and known-limitations documentation.
+- Prepare a release-candidate boundary for the dummy adapter MVP.
 
 ## Important Agent Instructions
 
@@ -414,7 +466,7 @@ Future agents should:
    - Session actions + dummy adapter were completed before frontend UI.
    - Minimal approval web UI is implemented.
    - Backend lifecycle/audit controls and their frontend UI are implemented.
-   - Full admin login is still deferred.
+   - Local admin login/cookie auth is implemented in Phase 7.
 4. Keep all productive-system access behind typed adapters and explicit approvals.
 5. Do not add raw shell or real HomeLab adapters until Florian explicitly chooses that phase.
 6. Keep using integration tests for full HTTP flows, especially security and audit behavior.

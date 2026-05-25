@@ -2,7 +2,10 @@
 
 ## Status
 
-Planned. Do not implement this phase before this document has been reviewed as the active phase plan.
+Completed and validated.
+
+Backend commit: `a4a4ced feat: add local admin cookie authentication`
+Frontend commit: `2cfe218 feat: replace admin token UI with login session`
 
 ## Phase Goal
 

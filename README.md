@@ -31,38 +31,45 @@ Der Kern soll generisch bleiben:
 
 ## Aktueller Status
 
-Der Backend-MVP-Kern ist bis einschließlich Session Actions mit Dummy Adapter implementiert und validiert. Zusätzlich existiert eine minimale Approval-Web-UI.
+Der Dummy-MVP-Kern ist bis einschließlich lokaler Admin-Login-Session, Approval/Deny, Session Actions, Lifecycle Controls und Audit Browsing implementiert und validiert.
 
 Aktuell funktioniert:
 
 ```text
-Access Request -> Approve/Deny in Web UI -> Session -> Execute typed dummy action -> Audit
+Access Request -> Admin Login -> Approve/Deny in Web UI -> Session -> Execute typed dummy action -> Lifecycle controls -> Audit browsing
 ```
 
 Implementiert sind:
 
 - `backend/`: .NET-10-Solution mit ASP.NET Core/FastEndpoints, EF Core, SQLite und Migrations
-- `frontend/`: React/Vite-App mit minimalem Approval-Dashboard, pnpm-Skripten für Check, Test und Build
+- `frontend/`: React/Vite-App mit Admin-Login, Approval-Dashboard, Session Lifecycle Controls, Audit Feed und pnpm-Skripten für Check, Test und Build
 - Docker-Compose-Baseline für lokale Demo-/Dev-Starts
 - Access-Request-API:
   - `POST /api/v1/access-requests`
   - `GET /api/v1/access-requests/{id}`
   - `GET /api/v1/access-requests`
-- Approval-/Deny-API mit statischem Admin-Token:
+- Admin-Auth-API mit lokaler Cookie-Session:
+  - `POST /api/v1/admin/login`
+  - `POST /api/v1/admin/logout`
+  - `GET /api/v1/admin/me`
+- Approval-/Deny-API über Admin-Session:
   - `POST /api/v1/access-requests/{id}/approve`
   - `POST /api/v1/access-requests/{id}/deny`
 - Session-API:
   - `GET /api/v1/sessions/{id}`
   - `POST /api/v1/sessions/{sessionId}/actions`
+  - `POST /api/v1/sessions/{id}/complete`
+  - `POST /api/v1/sessions/{id}/revoke`
 - Dummy Action Adapter mit `test.echo`, `test.status.read` und `test.fail`
-- Audit Events für Request-Erstellung, Approval/Deny, Session-Erzeugung und Action-Entscheidungen/Ausführung
-- Minimale Approval-Web-UI:
+- Audit API und Events für Request-Erstellung, Admin Login/Logout, Approval/Deny, Session-Erzeugung, Lifecycle-Übergänge und Action-Entscheidungen/Ausführung
+- Approval-Web-UI:
+  - lokalen Admin Login via HttpOnly Cookie-Session
   - Requests listen und Details menschenlesbar anzeigen
-  - Admin Token manuell eingeben, ohne Persistenz im Browser Storage
   - Approve/Deny mit Kommentar
-  - Session Summary und optionale Dummy Action anzeigen
+  - Session Summary, Action Budget, Revoke/Complete und optionale Dummy Action anzeigen
+  - Audit Events mit Filtern browsen
 
-Noch nicht implementiert sind vollständige Admin-Login-Auth, Session Revocation/Complete, max action count, Audit-UI/API und echte Zielsystem-Adapter.
+Noch nicht implementiert sind echte Zielsystem-Adapter, globale Session-Operations-UI, OIDC/TOTP/Passkeys/mTLS und Multi-Admin Approval.
 
 Der detaillierte Projektstand für zukünftige Agents steht in `docs/current-status.md`.
 
@@ -123,7 +130,7 @@ Beispielwerte stehen in `.env.example`. Für lokale Anpassungen kann die Datei k
 cp .env.example .env
 ```
 
-Die Beispielwerte sind bewusst keine Secrets und nur für lokale Entwicklung gedacht.
+Die Beispielwerte sind bewusst keine Secrets und nur für lokale Entwicklung gedacht. Für lokale HTTP-Compose-Demos setzt die Beispielkonfiguration `GATEKEEPER_ADMIN_COOKIE_SECURE=false`; produktionsähnliche Deployments sollen Secure-Cookies verwenden.
 
 Compose validieren, Images bauen und Services starten:
 

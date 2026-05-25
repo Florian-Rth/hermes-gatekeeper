@@ -147,6 +147,19 @@ Entscheidung: Action-Audit-Events speichern keine rohen beliebigen Payloads oder
 
 Konsequenz: Das verringert Risiko, versehentlich Secrets oder große/sensible Outputs im Audit abzulegen. Detailreichere Audit-Outputs müssen später bewusst designt werden.
 
+### 2026-05-25 — Phase 7 Admin Auth: lokale Cookie-Session statt sichtbarer Admin Token
+
+Entscheidung/Stand: Admin-Browserzugriff nutzt nun lokale Single-Admin-Authentifizierung mit HttpOnly Cookie-Session. Die UI zeigt kein manuelles Admin-Token-Feld mehr im normalen Flow.
+
+Umgesetzte Endpunkte:
+
+- `POST /api/v1/admin/login`
+- `POST /api/v1/admin/logout`
+- `GET /api/v1/admin/me`
+
+Konsequenz: Approve, Deny, Revoke und Audit Listing verwenden die Admin-Session-Grenze statt `X-Gatekeeper-Admin-Token`. `POST /api/v1/sessions/{id}/complete` bleibt bewusst unverändert. OIDC, TOTP, Passkeys/WebAuthn, mTLS und Multi-Admin Approval bleiben spätere Erweiterungen.
+
+
 ## Vorläufige technische Präferenzen
 
 Aktueller Stand:
@@ -158,7 +171,7 @@ Aktueller Stand:
 - Frontend Package Manager: pnpm
 - Deployment: Docker Compose für MVP
 - Datenbank: EF Core + SQLite + Migrations für MVP, Postgres später möglich
-- Auth MVP: lokale Admin-Auth per ENV Admin Seed
+- Auth MVP: lokale Admin-Auth per ENV Admin Credentials und HttpOnly Cookie-Session
 - Transport Hermes -> Gatekeeper: Client Token für MVP; mTLS später prüfen
 - Audit: DB + JSONL denkbar, später append-only Hash Chain
 
@@ -223,7 +236,6 @@ Kandidaten:
 
 ## Nächste Schritte
 
-1. MVP-Scope festlegen: Dummy/Test Adapter vs. generischer HTTP Adapter vs. SSH read-only Test-Adapter.
-2. Domain-Modell definieren: AccessRequest, Session, Capability, Target, Action, AuditEvent.
-3. API-Kontrakt als OpenAPI-first Entwurf festhalten.
-4. Konkreten Implementierungsplan für .NET + FastEndpoints schreiben.
+1. MVP-Hardening/Release-Kandidat vorbereiten: Doku, Demo-Flow, Security-/Error-Handling, finale Integrationstests.
+2. Danach erst den ersten echten Adapter bewusst wählen: generischer HTTP read-only, SSH read-only Test-VM oder Docker read-only.
+3. OIDC/TOTP/Passkeys/mTLS und Multi-Admin Approval bleiben Post-MVP-Identitätsoptionen.

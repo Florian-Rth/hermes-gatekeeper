@@ -2,7 +2,7 @@
 
 ## Aktueller Implementierungsstand
 
-Stand 2026-05-24: Der tatsächlich umgesetzte Schnitt ist weiter als die ursprüngliche Phasenreihenfolge in diesem Dokument. Dieses Dokument ist weiterhin verbindlich und muss vor jeder weiteren Entwicklungsphase gepflegt werden.
+Stand 2026-05-25: Der tatsächlich umgesetzte Schnitt ist weiter als die ursprüngliche Phasenreihenfolge in diesem Dokument. Dieses Dokument ist weiterhin verbindlich und muss vor jeder weiteren Entwicklungsphase gepflegt werden.
 
 Abgeschlossen und auf `main` gepusht:
 
@@ -14,11 +14,13 @@ Abgeschlossen und auf `main` gepusht:
 - Compose Admin-Token-Korrektur: `ed6cbec fix: pass admin token in compose`
 - Phase 5 Session Lifecycle und Audit Controls Backend: `47502c8 feat: add session lifecycle and audit controls`
 - Phase 6 Session Lifecycle und Audit Visibility UI: `8a3e345 feat: add session lifecycle audit ui`
+- Phase 7 Backend Admin Cookie Auth: `a4a4ced feat: add local admin cookie authentication`
+- Phase 7 Frontend Login Session UI: `2cfe218 feat: replace admin token UI with login session`
 
 Der aktuelle Backend-Kern kann:
 
 ```text
-Access Request -> Approve/Deny in Web UI -> Session -> Execute typed dummy action -> Lifecycle controls in UI -> Audit browsing UI
+Access Request -> Admin Login -> Approve/Deny in Web UI -> Session -> Execute typed dummy action -> Lifecycle controls in UI -> Audit browsing UI
 ```
 
 Wichtige Abweichung vom ursprünglichen Plan:
@@ -27,6 +29,7 @@ Wichtige Abweichung vom ursprünglichen Plan:
 - Session Actions + Dummy Adapter wurden vor der Minimal Web UI umgesetzt, um den Produktkern früh per Integrationstests zu beweisen.
 - Die Minimal Approval Web UI ist inzwischen umgesetzt und kann Requests listen, Details anzeigen, approve/deny ausführen, Session Summary anzeigen und safe Dummy Actions anstoßen.
 - Session Lifecycle und Audit Visibility wurden backendseitig in Phase 5 umgesetzt und frontendseitig in Phase 6 sichtbar/bedienbar gemacht.
+- Phase 7 ersetzt den sichtbaren manuellen Admin Token durch lokale Admin-Login-/Cookie-Session-Auth für Admin-Operationen.
 - Die ältere Phasennummerierung unten bleibt als strategischer Plan erhalten, ist aber nicht mehr exakt die Umsetzungsreihenfolge.
 
 Für zukünftige Agents ist `docs/current-status.md` die führende Statusquelle für den Ist-Zustand. Dieses Dokument bleibt der verbindliche Roadmap-/Planungsrahmen und darf nicht ignoriert oder spontan ersetzt werden.
@@ -44,9 +47,9 @@ Dieser Plan ist Teil des Entwicklungsprozesses, nicht nur Dokumentation nachträ
 - Nach jeder Phase `docs/current-status.md` und bei Roadmap-/Scope-Änderungen auch dieses Dokument aktualisieren.
 - Der Plan darf angepasst werden; er darf nicht stillschweigend über den Haufen geworfen werden.
 
-## Nächste konkrete Phase — Admin Authentication Hardening
+## Zuletzt abgeschlossene konkrete Phase — Admin Authentication Hardening
 
-Phase 6 hat die bestehenden Backend-Fähigkeiten für Session Lifecycle und Audit Visibility in der Web UI sichtbar und bedienbar gemacht. Die nächste konkrete Lücke ist nicht ein weiterer Adapter, sondern die Admin-Authentifizierung: Die UI nutzt weiterhin den manuell eingegebenen statischen Admin Token.
+Phase 7 hat die Admin-Authentifizierung gehärtet: Die UI nutzt nicht mehr den manuell eingegebenen statischen Admin Token, sondern lokale Admin-Login-/Cookie-Session-Auth.
 
 ### Ziel
 
@@ -59,12 +62,14 @@ Den manuellen statischen Admin-Token-Eingabefluss durch eine kleine, lokale Admi
 - Bestehende Approval-, Revoke- und Audit-Flows bleiben erhalten.
 - Token/Session-Handling ist dokumentiert, getestet und auditierbar.
 
-### Vorläufiger Scope
+### Umgesetzter Scope
 
-- Kleine lokale Admin-Auth evaluieren und planen.
-- Login-/Logout-Flow und Session-Handling definieren.
-- Backend und Frontend weiterhin in getrennte Slices/Phasen schneiden.
-- Bestehende statische Token-Grenze nicht stillschweigend entfernen, bevor Ersatz validiert ist.
+- Lokale Single-Admin-Auth über ENV Credentials.
+- HttpOnly Cookie-Session für Browser-Adminzugriff.
+- Login-/Logout-/Me-Endpunkte.
+- Approve/Deny/Revoke/Audit auf Admin-Session statt sichtbaren Token migriert.
+- `complete`-Endpoint bewusst unverändert gelassen.
+- Frontend `AdminAuthProvider`, `AdminAuthGate`, Login-Panel, Logout im Header und Session-expired Handling.
 
 ### Nicht-Ziele
 
@@ -76,7 +81,18 @@ Den manuellen statischen Admin-Token-Eingabefluss durch eine kleine, lokale Admi
 
 ### Validierung
 
-Die konkrete Validierung wird im Phasen-Grill-Me festgelegt. Erwartet werden mindestens Backend-Integrationstests für Auth-Grenzen und Frontend-Tests für Login-/Logout-/geschützte Aktionen.
+Backend und Frontend wurden validiert:
+
+- Backend restore/build/test: passed, 128/128.
+- Backend CSharpier check: passed.
+- Frontend `pnpm check`: passed.
+- Frontend `pnpm test -- --run`: passed, 28/28.
+- Frontend `pnpm build`: passed.
+- `docker compose config`: passed.
+- `docker compose build backend`: passed.
+- `docker compose build frontend`: passed.
+- Spec Review: PASS.
+- Frontend Quality/Security Review: APPROVED.
 
 ### Detailplan
 
@@ -93,7 +109,7 @@ Er legt fest:
 
 ### Commit Boundary
 
-Diese Phase darf implementiert werden, nachdem der Detailplan in `docs/phase-7-admin-authentication-hardening.md` als aktiver Phasenplan gelesen wurde. Implementierung erfolgt in getrennten Backend-/Frontend-Slices über frische Subagents.
+Phase 7 ist in getrennten Backend-/Frontend-Slices umgesetzt und committed. Nächste Arbeit sollte vor produktiven Adaptern den MVP-Hardening-/Release-Kandidat-Scope prüfen.
 
 ---
 

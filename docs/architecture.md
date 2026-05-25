@@ -244,9 +244,10 @@ Empfehlungen:
 
 Aktueller Implementierungsstand:
 
-- Approval/Deny ist durch einen statischen Admin-Token geschützt (`X-Gatekeeper-Admin-Token` gegen `GATEKEEPER_ADMIN_TOKEN`).
-- Vollständige Admin-Login-/Cookie-Auth ist noch nicht implementiert.
-- Session Action Execution ist im Dummy-MVP erreichbar, wird aber durch Session-ID, Expiry und Capability-Allowlist begrenzt. Eine stärkere Agent-/Session-Authentifizierung ist später nachzuziehen.
+- Web-Admin-Zugriff nutzt lokale Single-Admin-Auth mit HttpOnly Cookie-Session.
+- Admin-Session-Endpunkte sind `POST /api/v1/admin/login`, `POST /api/v1/admin/logout` und `GET /api/v1/admin/me`.
+- Approve, Deny, Revoke und Audit Listing sind durch die Admin-Session-Grenze geschützt; die UI verwendet keinen sichtbaren statischen Admin Token mehr.
+- Session Action Execution ist im Dummy-MVP erreichbar, wird aber durch Session-ID, Expiry, Action-Budget und Capability-Allowlist begrenzt. Eine stärkere Agent-/Session-Authentifizierung ist später nachzuziehen.
 
 ## Audit Log
 
