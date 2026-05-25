@@ -31,7 +31,7 @@ Der Kern soll generisch bleiben:
 
 ## Aktueller Status
 
-Der Dummy-MVP-Kern ist bis einschließlich lokaler Admin-Login-Session, Approval/Deny, Session Actions, Lifecycle Controls und Audit Browsing implementiert und validiert.
+Der Dummy-MVP-Kern ist bis einschließlich lokaler Admin-Login-Session, Approval/Deny, Session Actions, Lifecycle Controls und Audit Browsing implementiert und validiert. Für den echten MVP fehlt als nächste Phase noch der generische SSH-read-only Connector.
 
 Aktuell funktioniert:
 
@@ -69,7 +69,7 @@ Implementiert sind:
   - Session Summary, Action Budget, Revoke/Complete und optionale Dummy Action anzeigen
   - Audit Events mit Filtern browsen
 
-Noch nicht implementiert sind echte Zielsystem-Adapter, globale Session-Operations-UI, OIDC/TOTP/Passkeys/mTLS und Multi-Admin Approval.
+Noch nicht implementiert sind der generische SSH-read-only Connector als MVP-Realitätsnachweis, globale Session-Operations-UI, OIDC/TOTP/Passkeys/mTLS und Multi-Admin Approval. Spezielle Connectoren wie Home Assistant, Docker und Proxmox bleiben Post-MVP.
 
 Der detaillierte Projektstand für zukünftige Agents steht in `docs/current-status.md`.
 

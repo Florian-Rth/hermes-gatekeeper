@@ -109,7 +109,61 @@ Er legt fest:
 
 ### Commit Boundary
 
-Phase 7 ist in getrennten Backend-/Frontend-Slices umgesetzt und committed. Nächste Arbeit sollte vor produktiven Adaptern den MVP-Hardening-/Release-Kandidat-Scope prüfen.
+Phase 7 ist in getrennten Backend-/Frontend-Slices umgesetzt und committed. Nächste Arbeit ist Phase 8: generischer SSH-read-only Connector als echter, minimaler MVP-Connector. MVP-Hardening/Release Candidate folgt danach.
+
+---
+
+## Nächste konkrete Phase — Phase 8: Generic SSH Read-only Connector
+
+### Ziel
+
+Der MVP soll nicht nur einen Dummy-Adapter demonstrieren, sondern das Endziel in minimaler realer Form erfüllen: ein Agent fragt Zugriff an, ein Admin genehmigt, und Gatekeeper führt innerhalb der begrenzten Session eine typisierte read-only Aktion gegen ein echtes Zielsystem aus.
+
+SSH ist dafür der generische MVP-Connector, weil er systemübergreifend nutzbar ist, ohne früh Home Assistant, Docker, Proxmox oder andere Spezialadapter in den Core zu ziehen.
+
+### Ergebnis am Ende der Phase
+
+- Gatekeeper kann konfigurierte SSH Targets erreichen.
+- Agenten können nur vorher genehmigte, typisierte SSH-read-only Actions ausführen.
+- Keine freie Shell, kein sudo, keine interaktiven Sessions, keine Dateiübertragung, keine Port-Forwards.
+- Kommandos sind über eine serverseitige Allowlist/Aktionsmapping definiert.
+- Outputs sind größen- und zeitbegrenzt und werden sicher gekürzt/auditiert.
+- Der Flow ist per Integrationstest oder kontrollierter Test-SSH-Umgebung validiert.
+
+### Scope
+
+- Backend-only zuerst; Frontend nur wenn für Darstellung von neuen Action-Resultaten nötig.
+- SSH Target-Konfiguration per ENV/YAML/JSON-Konfig, nicht per UI.
+- Authentifizierung zunächst über private key oder passwortlose Test-Key-Datei aus Konfiguration; Secrets dürfen nicht an Agenten oder UI ausgegeben werden.
+- Named targets und named actions, z.B.:
+  - Target: `test-vm`
+  - Actions: `system.status.read`, `disk.usage.read`, `service.status.read`
+- `ssh.command.read` nur als interner/generischer Action-Typ mit serverseitig gemapptem Command, nicht als Agent-supplied arbitrary command.
+
+### Nicht-Ziele
+
+- Keine Spezialconnectoren: Home Assistant, Docker, Proxmox, Kubernetes, HTTP service adapter.
+- Keine Write Actions.
+- Kein sudo.
+- Keine freie Shell.
+- Keine TTY/interaktiven Programme.
+- Kein Datei-Upload/Download.
+- Kein Port Forwarding.
+- Keine Secrets aus Env, Prozesslisten oder bekannten Secret-Dateien ausgeben.
+
+### Validierung
+
+- Unit-/Integrationstests für Target-/Action-Allowlist.
+- Tests für falsches Target, falsche Capability, nicht gemappte Action, Timeout, Output-Limit und Adapterfehler.
+- Full Flow Test: Request -> Approve -> Session -> SSH-read-only Action -> Audit.
+- Backend Gates via Docker SDK fallback:
+  - `dotnet restore/build/test`
+  - CSharpier check auf `src tests`
+- `docker compose config` und, falls Test-SSH-Container ergänzt wird, Compose-Build/Smoke-Test.
+
+### Commit Boundary
+
+Phase 8 endet erst, wenn der SSH-read-only Connector implementiert, getestet, reviewed, dokumentiert, committed und gepusht ist.
 
 ---
 
@@ -797,12 +851,12 @@ Gatekeeper ist besser nachvollziehbar, exportierbar und manipulationsresistenter
 
 ## Empfohlene erste Umsetzungsschritte
 
-Für die konkrete Implementierung sollten zuerst nur Phase 0 bis Phase 8 umgesetzt werden. Das ist der MVP.
+Für die konkrete Implementierung gehören Phase 0 bis Phase 8 zum MVP. Phase 8 ist jetzt der generische SSH-read-only Connector. Erst danach ist der MVP inhaltlich vollständig genug für Hardening/Release Candidate.
 
 Danach ist die nächste sinnvolle Reihenfolge:
 
-1. Phase 9 — HTTP read-only Adapter
-2. Phase 10 — SSH read-only Adapter für Test-VM
+1. Phase 9 — MVP Hardening und Release-Kandidat
+2. Phase 10 — HTTP read-only Adapter
 3. Phase 11 — Docker read-only Adapter
 4. Phase 12 — Safe Write Actions
 5. Phase 13 — Home Assistant Adapter
@@ -817,6 +871,7 @@ Der MVP ist fertig, wenn:
 - Admin kann Request in Web UI sehen und genehmigen/ablehnen.
 - Approval erzeugt begrenzte Session.
 - Agent kann erlaubte Dummy Actions ausführen.
+- Agent kann mindestens eine erlaubte generische SSH-read-only Action gegen ein konfiguriertes Testziel ausführen.
 - Policy Engine blockiert nicht genehmigte Actions.
 - Sessions können completed, revoked und expired sein.
 - Audit Log enthält alle relevanten Events.
@@ -826,7 +881,7 @@ Der MVP ist fertig, wenn:
 ## Nicht vor dem MVP bauen
 
 - Home Assistant Adapter
-- SSH gegen produktive Hosts
+- SSH gegen produktive Hosts außerhalb einer bewusst konfigurierten Test-/Read-only-Umgebung
 - freie Shell
 - Proxmox Adapter
 - OIDC

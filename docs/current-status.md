@@ -434,26 +434,28 @@ These are not bugs in the current phase; they are intentionally deferred scope:
 - No global session list endpoint/UI yet.
 - No action history UI beyond the audit event API.
 - No agent authentication for request creation/action execution beyond current MVP boundaries.
-- No real target adapters.
-- No production/HomeLab integration.
+- No real target adapters yet; the next MVP phase is a generic SSH read-only connector.
+- No production/HomeLab integration yet.
 - No raw shell and no break-glass flow.
 - No OIDC, mTLS, TOTP, Passkeys, or multi-admin approval.
 
 ## Recommended Next Phase
 
-Recommended next phase: MVP hardening / release-candidate preparation before real target adapters.
+Recommended next phase: Phase 8 — Generic SSH read-only connector for the MVP.
 
 Reason:
 
-- The full dummy MVP flow now works behind local admin login, session lifecycle controls, action budget visibility, and audit browsing.
-- Before adding productive adapters, the project should tighten documentation, error responses, demo flow, security headers/CORS posture, and release-readiness checks.
+- A real MVP must prove the end goal in minimal form: a controlled agent request can result in a bounded, audited action against a real target class.
+- Special-purpose connectors such as Home Assistant, Docker, Proxmox, and HTTP service adapters stay out of the MVP.
+- A generic SSH read-only connector is broadly applicable across systems while still allowing strict typed actions and no raw shell exposure.
 
 Suggested scope:
 
-- Keep productive adapters, raw shell, OIDC, mTLS, TOTP, Passkeys, and multi-admin approval out of the immediate next phase unless explicitly chosen.
-- Polish README demo flow and operational guidance.
-- Add final MVP integration/security checks and known-limitations documentation.
-- Prepare a release-candidate boundary for the dummy adapter MVP.
+- Add a generic SSH connector with typed read-only actions, not a free-form shell.
+- Configure named SSH targets with host, port, user, auth reference, command timeout, and command allowlist/action mapping.
+- Start with low-risk read-only actions such as `ssh.command.read`, `system.status.read`, `disk.usage.read`, and `service.status.read` only where mapped in config.
+- Keep write actions, sudo, TTY, interactive commands, file upload/download, port forwarding, and arbitrary command execution out of the MVP.
+- Follow with a hardening/release-candidate phase after the SSH connector is validated.
 
 ## Important Agent Instructions
 
@@ -468,5 +470,5 @@ Future agents should:
    - Backend lifecycle/audit controls and their frontend UI are implemented.
    - Local admin login/cookie auth is implemented in Phase 7.
 4. Keep all productive-system access behind typed adapters and explicit approvals.
-5. Do not add raw shell or real HomeLab adapters until Florian explicitly chooses that phase.
+5. Do not add raw shell, sudo, write actions, or special HomeLab adapters until Florian explicitly chooses that phase.
 6. Keep using integration tests for full HTTP flows, especially security and audit behavior.

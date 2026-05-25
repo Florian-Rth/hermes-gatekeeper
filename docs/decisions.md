@@ -160,6 +160,13 @@ Umgesetzte Endpunkte:
 Konsequenz: Approve, Deny, Revoke und Audit Listing verwenden die Admin-Session-Grenze statt `X-Gatekeeper-Admin-Token`. `POST /api/v1/sessions/{id}/complete` bleibt bewusst unverändert. OIDC, TOTP, Passkeys/WebAuthn, mTLS und Multi-Admin Approval bleiben spätere Erweiterungen.
 
 
+### 2026-05-25 — Generischer SSH-read-only Connector gehört in den MVP
+
+Entscheidung: Ein MVP muss das Endziel in minimaler realer Form erfüllen. Der Dummy Adapter reicht als risikofreier Testpfad, aber der MVP braucht zusätzlich einen echten, generischen und breit anwendbaren Connector. Dafür wird ein SSH-read-only Connector in die MVP-Grenze aufgenommen.
+
+Konsequenz: Spezielle Connectoren wie Home Assistant, Docker, Proxmox oder HTTP-Service-Adapter bleiben Post-MVP. SSH wird aber als generischer Systemzugriff Bestandteil von Phase 8. Er bleibt strikt typisiert und read-only: keine freie Shell, kein sudo, keine Write Actions, keine TTY/Interaktivität, keine Dateiübertragung und kein Port Forwarding.
+
+
 ## Vorläufige technische Präferenzen
 
 Aktueller Stand:
@@ -195,14 +202,14 @@ Aktueller Stand:
 
 ### Target-Systeme MVP
 
-Das MVP soll nicht Home-Assistant-first sein. Erstes technisches Ziel ist ein generischer Target-/Capability-/Session-Flow mit Dummy- oder Test-Adapter.
+Das MVP soll nicht Home-Assistant-first sein. Der Dummy/Test Adapter bleibt der risikofreie Testpfad, aber der MVP braucht zusätzlich einen echten generischen Connector. Dafür ist SSH read-only als Phase 8 gesetzt.
 
-Kandidaten:
+MVP-Reihenfolge:
 
 1. Dummy/Test Adapter für vollständigen End-to-End Flow
-2. generischer HTTP Target Adapter read-only
-3. generischer SSH read-only Adapter auf unkritische Test-VM
-4. später: Docker, Home Assistant, Proxmox als konkrete Adapter
+2. generischer SSH read-only Connector auf kontrollierte Test-/Read-only-Targets
+3. MVP Hardening / Release Candidate
+4. später: HTTP read-only, Docker, Home Assistant, Proxmox als konkrete Adapter
 
 ### Policy-Modell
 
@@ -236,6 +243,6 @@ Kandidaten:
 
 ## Nächste Schritte
 
-1. MVP-Hardening/Release-Kandidat vorbereiten: Doku, Demo-Flow, Security-/Error-Handling, finale Integrationstests.
-2. Danach erst den ersten echten Adapter bewusst wählen: generischer HTTP read-only, SSH read-only Test-VM oder Docker read-only.
-3. OIDC/TOTP/Passkeys/mTLS und Multi-Admin Approval bleiben Post-MVP-Identitätsoptionen.
+1. Phase 8 planen und umsetzen: generischer SSH-read-only Connector als MVP-Bestandteil.
+2. Danach MVP-Hardening/Release-Kandidat vorbereiten: Doku, Demo-Flow, Security-/Error-Handling, finale Integrationstests.
+3. Spezielle Adapter und OIDC/TOTP/Passkeys/mTLS/Multi-Admin Approval bleiben Post-MVP.

@@ -275,10 +275,12 @@ Perspektivisch:
 
 Empfohlene Reihenfolge:
 
-1. Dummy Adapter für End-to-End Flow
-2. Home Assistant read-only Adapter
-3. SSH read-only Adapter
-4. Docker read-only über SSH
-5. Safe write actions
-6. Proxmox Adapter
-7. Advanced / Break-glass Modus
+1. Dummy Adapter für risikofreien End-to-End Flow
+2. Generischer SSH-read-only Connector als MVP-Realitätsnachweis
+3. MVP Hardening / Release Candidate
+4. HTTP read-only Adapter
+5. Docker read-only über SSH
+6. Safe write actions
+7. Home Assistant read-only Adapter
+8. Proxmox Adapter
+9. Advanced / Break-glass Modus

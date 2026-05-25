@@ -2,31 +2,28 @@
 
 ## Aktueller MVP-Stand
 
-Stand 2026-05-23 ist der Backend-Kern des MVPs bis zum Dummy-Action-Broker umgesetzt:
+Stand 2026-05-25 ist der Dummy-MVP-Kern bis Admin Login, Approval, Session Lifecycle, Audit UI und Dummy-Action-Broker umgesetzt:
 
 ```text
-Access Request -> Approve/Deny -> Session -> Execute typed dummy action -> Audit
+Access Request -> Admin Login -> Approve/Deny -> Session -> Execute typed dummy action -> Lifecycle Controls -> Audit UI
 ```
 
 Bereits implementiert:
 
 - Access Requests erstellen, lesen und listen.
-- Approve/Deny mit statischem Admin Token.
+- Lokale Admin-Login-/Cookie-Session statt sichtbarem Admin Token.
 - Session-Erzeugung bei Approval.
-- Session Details lesen.
+- Session Details, Revoke, Complete, Action Budget und Audit UI.
 - Session Action Execution über `POST /api/v1/sessions/{sessionId}/actions`.
 - Dummy Capabilities `test.echo`, `test.status.read`, `test.fail`.
-- Audit Events für Request, Approval/Deny, Session und Action-Flows.
+- Audit Events für Request, Admin Login/Logout, Approval/Deny, Session und Action-Flows.
 - HTTP-Integrationstests für Happy Path und zentrale Fehlerfälle.
 
 Noch offen für den MVP:
 
-- vollständige lokale Admin-Login-Auth und Web UI.
-- Session revoke/complete.
-- max action count.
-- Audit API/UI.
-- ggf. `test.logs.read` falls für Demo benötigt.
-- erste dokumentierte End-to-End-Demo über Docker Compose.
+- generischer SSH read-only Connector als erster echter, breit anwendbarer Target Connector.
+- persistente Compose-Daten/Keys für lauffähigen MVP-Betrieb.
+- erste dokumentierte End-to-End-Demo über Docker Compose mit Dummy- und SSH-read-only-Flow.
 
 Details stehen in `docs/current-status.md`.
 
@@ -38,10 +35,11 @@ Der MVP soll den generischen Kern von Hermes Gatekeeper beweisen:
 2. Ein Admin kann die Anfrage über lokale Web-UI/Admin-Auth genehmigen oder ablehnen.
 3. Bei Genehmigung entsteht eine begrenzte Session.
 4. Der Agent kann innerhalb der Session nur erlaubte Actions ausführen.
-5. Alle Schritte werden auditiert.
-6. Das System ist per Docker Compose selbsthostbar.
+5. Mindestens ein echter generischer Connector beweist die Zielsystem-Anbindung in minimaler, sicherer Form.
+6. Alle Schritte werden auditiert.
+7. Das System ist per Docker Compose selbsthostbar.
 
-Nicht Ziel des MVP: direkte produktive HomeLab-Integration.
+Nicht Ziel des MVP: spezielle HomeLab-Integrationen wie Home Assistant, Docker, Proxmox oder freie Shell. Ziel des MVP ist aber ein generischer SSH-read-only Connector, weil SSH systemübergreifend einsetzbar ist und das Endziel minimal real beweist.
 
 ## Tech Stack
 
@@ -61,15 +59,18 @@ Nicht Ziel des MVP: direkte produktive HomeLab-Integration.
 
 ## MVP-Leitentscheidung
 
-Der MVP startet mit einem generischen Dummy/Test Adapter, nicht mit Home Assistant.
+Der MVP nutzt zwei Connector-Stufen:
+
+1. Dummy/Test Adapter für risikofreie End-to-End-Tests.
+2. Generischer SSH-read-only Connector als erster echter, breit anwendbarer Target Connector.
 
 Begründung:
 
-- beweist das Produktmodell ohne produktive Risiken
-- hält den Kern generisch
-- vermeidet frühe HA-spezifische Modellverzerrung
-- ist für Open-Source-Nutzer verständlicher
-- erlaubt End-to-End Tests ohne echte Zielsysteme
+- Dummy beweist das Produktmodell ohne produktive Risiken.
+- SSH-read-only beweist das eigentliche Endziel in minimaler, real lauffähiger Form.
+- Der Kern bleibt generisch und wird nicht Home-Assistant-first.
+- Spezielle Connectoren bleiben Post-MVP, aber SSH ist als generischer Systemzugriff Open-Source-tauglich und für sehr viele Umgebungen verwendbar.
+- Typisierte SSH-Actions erlauben strenge Kontrolle ohne freie Shell.
 
 ## MVP Features
 
@@ -149,11 +150,20 @@ API:
 
 MVP Action Types:
 
+Dummy:
+
 - `test.echo`
 - `test.status.read`
 - `test.logs.read`
 
-Diese Actions werden vom Dummy Adapter beantwortet, ohne echte Zielsysteme zu berühren.
+SSH read-only:
+
+- `ssh.command.read` nur für vorkonfigurierte, erlaubte Kommandos/Aktionsnamen.
+- `system.status.read` als gemappte read-only Aktion.
+- `disk.usage.read` als gemappte read-only Aktion.
+- `service.status.read` als gemappte read-only Aktion mit erlaubten Service-Namen.
+
+Dummy Actions werden vom Dummy Adapter beantwortet. SSH Actions laufen gegen konfigurierte SSH Targets, aber niemals als freie Shell.
 
 ### 5. Policy Engine minimal
 
@@ -164,7 +174,9 @@ MVP Policy Regeln:
 - Session muss aktiv sein
 - Session darf nicht abgelaufen sein
 - maxActions darf nicht überschritten sein
-- write/high-risk Actions werden im Dummy MVP blockiert, außer explizit erlaubt
+- write/high-risk Actions werden im MVP blockiert
+- SSH Actions müssen gegen eine konfigurierte Target-Allowlist und Action-/Command-Allowlist laufen
+- SSH Output wird begrenzt und auditiert; Secrets/Env-Dumps sind zu vermeiden
 
 ### 6. Audit Log
 
@@ -187,7 +199,6 @@ Speicherung zunächst in SQLite. Optional zusätzlich JSONL später.
 ## Nicht im MVP
 
 - Home Assistant Adapter
-- SSH Adapter
 - Docker Adapter
 - Proxmox Adapter
 - OIDC
@@ -201,8 +212,8 @@ Speicherung zunächst in SQLite. Optional zusätzlich JSONL später.
 
 ## Nach dem MVP
 
-1. Generischer HTTP read-only Adapter
-2. SSH read-only Adapter für Test-VM
+1. MVP-Hardening / Release Candidate nach dem SSH-read-only Connector
+2. Generischer HTTP read-only Adapter
 3. Docker read-only Adapter
 4. Safe write Actions
 5. Home Assistant Adapter
