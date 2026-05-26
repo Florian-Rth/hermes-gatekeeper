@@ -1,12 +1,15 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Gatekeeper.Application.Sessions;
 using Gatekeeper.Core.Sessions;
 using Gatekeeper.Infrastructure.Persistence;
 using Gatekeeper.Infrastructure.Persistence.Entities;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Gatekeeper.Tests;
 
@@ -752,6 +755,173 @@ public sealed class AccessRequestEndpointTests
     }
 
     [Fact]
+    public async Task Should_ExecuteSshAction_When_TargetAndProfileAreApproved()
+    {
+        var policy = new FakeSshActionPolicy();
+        var executor = new FakeSshCommandExecutor();
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory(
+            configureServices: services =>
+            {
+                services.RemoveAll<ISshActionPolicy>();
+                services.RemoveAll<ISshCommandExecutor>();
+                services.AddSingleton<ISshActionPolicy>(policy);
+                services.AddSingleton<ISshCommandExecutor>(executor);
+            }
+        );
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        Guid accessRequestId = await CreateAccessRequestAsync(client, ["ssh.read"]);
+        Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/sessions/{sessionId}/actions",
+            new
+            {
+                target = "prod-api",
+                action = "logs.tail",
+                parameters = new { lines = "100" },
+            },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument document = await JsonDocument.ParseAsync(
+            await response.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken),
+            cancellationToken: TestContext.Current.CancellationToken
+        );
+        Assert.Equal(sessionId, document.RootElement.GetProperty("sessionId").GetGuid());
+        Assert.Equal("logs.tail", document.RootElement.GetProperty("capability").GetString());
+        Assert.Equal("prod-api", document.RootElement.GetProperty("target").GetString());
+        Assert.Equal("logs.tail", document.RootElement.GetProperty("action").GetString());
+        Assert.Equal(
+            0,
+            document.RootElement.GetProperty("result").GetProperty("exitCode").GetInt32()
+        );
+        Assert.Equal(
+            "ok",
+            document.RootElement.GetProperty("result").GetProperty("stdout").GetString()
+        );
+        Assert.Equal(1, policy.ResolveCount);
+        Assert.Equal(1, executor.ExecuteCount);
+        Assert.Equal(1, await GetSessionActionCountAsync(factory, sessionId));
+        await AssertAuditEventExistsAsync(factory, sessionId, "SessionActionAllowed");
+        await AssertAuditEventExistsAsync(factory, sessionId, "SessionActionExecuted");
+    }
+
+    [Fact]
+    public async Task Should_ReturnForbidden_When_SshTargetIsNotApproved()
+    {
+        var executor = new FakeSshCommandExecutor();
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory(
+            configureServices: services =>
+            {
+                services.RemoveAll<ISshActionPolicy>();
+                services.RemoveAll<ISshCommandExecutor>();
+                services.AddSingleton<ISshActionPolicy>(new FakeSshActionPolicy());
+                services.AddSingleton<ISshCommandExecutor>(executor);
+            }
+        );
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        Guid accessRequestId = await CreateAccessRequestAsync(client, ["ssh.read"]);
+        Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/sessions/{sessionId}/actions",
+            new
+            {
+                target = "prod-db",
+                action = "logs.tail",
+                parameters = new { lines = "100" },
+            },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(0, executor.ExecuteCount);
+        Assert.Equal(0, await GetSessionActionCountAsync(factory, sessionId));
+        await AssertAuditEventExistsAsync(factory, sessionId, "SessionActionDenied");
+    }
+
+    [Fact]
+    public async Task Should_ReturnForbidden_When_SshActionIsNotIncludedInApprovedProfile()
+    {
+        var executor = new FakeSshCommandExecutor();
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory(
+            configureServices: services =>
+            {
+                services.RemoveAll<ISshActionPolicy>();
+                services.RemoveAll<ISshCommandExecutor>();
+                services.AddSingleton<ISshActionPolicy>(new FakeSshActionPolicy());
+                services.AddSingleton<ISshCommandExecutor>(executor);
+            }
+        );
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        Guid accessRequestId = await CreateAccessRequestAsync(client, ["ssh.write"]);
+        Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/sessions/{sessionId}/actions",
+            new
+            {
+                target = "prod-api",
+                action = "logs.tail",
+                parameters = new { lines = "100" },
+            },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(0, executor.ExecuteCount);
+        Assert.Equal(0, await GetSessionActionCountAsync(factory, sessionId));
+        await AssertAuditEventExistsAsync(factory, sessionId, "SessionActionDenied");
+    }
+
+    [Fact]
+    public async Task Should_ReturnForbidden_When_SshActionIsUnknown()
+    {
+        var executor = new FakeSshCommandExecutor();
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory(
+            configureServices: services =>
+            {
+                services.RemoveAll<ISshActionPolicy>();
+                services.RemoveAll<ISshCommandExecutor>();
+                services.AddSingleton<ISshActionPolicy>(new FakeSshActionPolicy());
+                services.AddSingleton<ISshCommandExecutor>(executor);
+            }
+        );
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        Guid accessRequestId = await CreateAccessRequestAsync(client, ["ssh.read"]);
+        Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/sessions/{sessionId}/actions",
+            new
+            {
+                target = "prod-api",
+                action = "unknown",
+                parameters = new { },
+            },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(0, executor.ExecuteCount);
+        Assert.Equal(0, await GetSessionActionCountAsync(factory, sessionId));
+        await AssertAuditEventExistsAsync(factory, sessionId, "SessionActionDenied");
+    }
+
+    [Fact]
     public async Task Should_ReturnBadRequest_When_DummyActionPayloadIsInvalid()
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
@@ -1198,15 +1368,89 @@ public sealed class AccessRequestEndpointTests
         };
     }
 
+    private sealed class FakeSshActionPolicy : ISshActionPolicy
+    {
+        public int ResolveCount { get; private set; }
+
+        public SshActionPolicyResult Resolve(
+            string targetAlias,
+            string actionName,
+            IReadOnlyCollection<SshApprovedProfileGrant> approvedProfileGrants,
+            JsonElement? parameters
+        )
+        {
+            ResolveCount++;
+            if (!string.Equals(targetAlias, "prod-api", StringComparison.Ordinal))
+            {
+                return SshActionPolicyResult.Failed(
+                    SshActionPolicyFailureReason.UnknownTarget,
+                    "Unknown SSH target."
+                );
+            }
+
+            if (!string.Equals(actionName, "logs.tail", StringComparison.Ordinal))
+            {
+                return SshActionPolicyResult.Failed(
+                    SshActionPolicyFailureReason.UnknownAction,
+                    "Unknown SSH action."
+                );
+            }
+
+            bool hasApprovedGrant = approvedProfileGrants.Any(grant =>
+                string.Equals(grant.TargetAlias, "prod-api", StringComparison.Ordinal)
+                && string.Equals(grant.ProfileName, "ssh.read", StringComparison.Ordinal)
+            );
+            if (!hasApprovedGrant)
+            {
+                return SshActionPolicyResult.Failed(
+                    SshActionPolicyFailureReason.MissingProfileMembership,
+                    "No approved SSH profile permits the requested action."
+                );
+            }
+
+            return SshActionPolicyResult.Success(
+                new SshResolvedAction(
+                    targetAlias,
+                    actionName,
+                    ["tail", "-n", "100", "/var/log/app.log"],
+                    new Dictionary<string, string> { ["lines"] = "100" },
+                    TimeSpan.FromSeconds(5),
+                    4096
+                )
+            );
+        }
+    }
+
+    private sealed class FakeSshCommandExecutor : ISshCommandExecutor
+    {
+        public int ExecuteCount { get; private set; }
+
+        public Task<SshCommandExecutionResult> ExecuteAsync(
+            SshResolvedAction resolvedAction,
+            CancellationToken cancellationToken
+        )
+        {
+            ExecuteCount++;
+            return Task.FromResult(
+                SshCommandExecutionResult.Completed(
+                    new SshCommandOutput(0, "ok", string.Empty, false, false)
+                )
+            );
+        }
+    }
+
     private sealed class AccessRequestApiFactory : WebApplicationFactory<Program>
     {
         private readonly string _databasePath;
+        private readonly Action<IServiceCollection>? _configureServices;
 
         public AccessRequestApiFactory(
             string? adminToken = "test-admin-token",
-            int? maxActionCount = null
+            int? maxActionCount = null,
+            Action<IServiceCollection>? configureServices = null
         )
         {
+            _configureServices = configureServices;
             _databasePath = Path.Combine(Path.GetTempPath(), $"gatekeeper-{Guid.NewGuid():N}.db");
             Environment.SetEnvironmentVariable("GATEKEEPER_SQLITE_DATA_PATH", _databasePath);
             Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_TOKEN", adminToken);
@@ -1217,6 +1461,16 @@ public sealed class AccessRequestEndpointTests
                 "GATEKEEPER_SESSION_MAX_ACTION_COUNT",
                 maxActionCount?.ToString()
             );
+        }
+
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            if (_configureServices is null)
+            {
+                return;
+            }
+
+            builder.ConfigureServices(_configureServices);
         }
 
         public async Task MigrateAsync(CancellationToken cancellationToken)

@@ -1,6 +1,4 @@
-using Gatekeeper.Application.Sessions;
-
-namespace Gatekeeper.Infrastructure.SessionActions.Ssh;
+namespace Gatekeeper.Application.Sessions;
 
 public interface ISshCommandExecutor
 {

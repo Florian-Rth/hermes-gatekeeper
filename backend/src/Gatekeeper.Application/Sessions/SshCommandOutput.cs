@@ -1,4 +1,4 @@
-namespace Gatekeeper.Infrastructure.SessionActions.Ssh;
+namespace Gatekeeper.Application.Sessions;
 
 public sealed class SshCommandOutput
 {

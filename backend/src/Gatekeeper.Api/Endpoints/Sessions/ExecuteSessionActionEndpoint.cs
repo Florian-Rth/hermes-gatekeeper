@@ -23,14 +23,21 @@ public sealed class ExecuteSessionActionEndpoint
 
     public override async Task HandleAsync(ExecuteSessionActionRequest req, CancellationToken ct)
     {
-        if (req.SessionId == Guid.Empty || string.IsNullOrWhiteSpace(req.Capability))
+        if (req.SessionId == Guid.Empty || !HasValidActionShape(req))
         {
             await Send.StringAsync(string.Empty, StatusCodes.Status400BadRequest, cancellation: ct);
             return;
         }
 
         SessionActionResult result = await _sessionActions.ExecuteAsync(
-            new ExecuteSessionActionCommand(req.SessionId, req.Capability, req.Payload),
+            new ExecuteSessionActionCommand(
+                req.SessionId,
+                req.Target,
+                req.Action,
+                req.Parameters,
+                req.Capability,
+                req.Payload
+            ),
             ct
         );
 
@@ -70,14 +77,34 @@ public sealed class ExecuteSessionActionEndpoint
             Capability = result.Execution.Capability,
             Status = result.Execution.Status,
             Result = result.Execution.Result,
+            Target = req.Target,
+            Action = req.Action,
         };
         await Send.OkAsync(response, ct);
+    }
+
+    private static bool HasValidActionShape(ExecuteSessionActionRequest req)
+    {
+        bool hasSshShape =
+            !string.IsNullOrWhiteSpace(req.Target) || !string.IsNullOrWhiteSpace(req.Action);
+        if (hasSshShape)
+        {
+            return !string.IsNullOrWhiteSpace(req.Target) && !string.IsNullOrWhiteSpace(req.Action);
+        }
+
+        return !string.IsNullOrWhiteSpace(req.Capability);
     }
 }
 
 public sealed class ExecuteSessionActionRequest
 {
     public Guid SessionId { get; set; }
+
+    public string Target { get; set; } = string.Empty;
+
+    public string Action { get; set; } = string.Empty;
+
+    public JsonElement? Parameters { get; set; }
 
     public string Capability { get; set; } = string.Empty;
 
@@ -89,7 +116,26 @@ public sealed class ExecuteSessionActionValidator : Validator<ExecuteSessionActi
     public ExecuteSessionActionValidator()
     {
         RuleFor(request => request.SessionId).NotEmpty();
-        RuleFor(request => request.Capability).NotEmpty().MaximumLength(200);
+        RuleFor(request => request.Target).MaximumLength(200);
+        RuleFor(request => request.Action).MaximumLength(200);
+        RuleFor(request => request.Capability).MaximumLength(200);
+        RuleFor(request => request)
+            .Must(HasValidActionShape)
+            .WithMessage("Either target/action or capability is required.");
+    }
+
+    private static bool HasValidActionShape(ExecuteSessionActionRequest request)
+    {
+        bool hasSshShape =
+            !string.IsNullOrWhiteSpace(request.Target)
+            || !string.IsNullOrWhiteSpace(request.Action);
+        if (hasSshShape)
+        {
+            return !string.IsNullOrWhiteSpace(request.Target)
+                && !string.IsNullOrWhiteSpace(request.Action);
+        }
+
+        return !string.IsNullOrWhiteSpace(request.Capability);
     }
 }
 
@@ -102,4 +148,8 @@ public sealed class ExecuteSessionActionResponse
     public string Status { get; set; } = string.Empty;
 
     public JsonElement Result { get; set; }
+
+    public string Target { get; set; } = string.Empty;
+
+    public string Action { get; set; } = string.Empty;
 }
