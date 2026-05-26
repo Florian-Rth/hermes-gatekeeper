@@ -105,6 +105,8 @@ docker run --rm -u $(id -u):$(id -g) -e DOTNET_CLI_HOME=/tmp -v "$PWD/backend:/s
 
 ## Task B5 — Compose demo target and docs
 
+**Status:** Implemented. The Compose stack includes `demo-ssh`, a controlled OpenSSH target container with low-privilege user `gatekeeper-readonly`, demo-only key/known-host files, and read-only configured actions. The full walkthrough is documented in `docs/phase-8-compose-ssh-demo.md`.
+
 **Objective:** Provide a reproducible local E2E demo for the SSH connector.
 
 **Depends on:** B2-B4.

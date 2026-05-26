@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+case "${SSH_ORIGINAL_COMMAND:-}" in
+  "'uname' '-a'")
+    exec uname -a
+    ;;
+  "'df' '-h'")
+    exec df -h
+    ;;
+  "'pgrep' '-x' 'sshd'")
+    exec pgrep -x sshd
+    ;;
+  *)
+    echo "Command is not allowed by the Gatekeeper demo target." >&2
+    exit 126
+    ;;
+esac

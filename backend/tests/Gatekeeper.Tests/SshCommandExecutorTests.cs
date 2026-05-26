@@ -262,6 +262,18 @@ public sealed class SshCommandExecutorTests
         Assert.Equal("'printf' 'hello world' 'it'\"'\"'s' '$(whoami)' ''", commandText);
     }
 
+    [Fact]
+    public void ReadBoundedText_Should_RewindSeekableStreamsBeforeReading()
+    {
+        var stream = new MemoryStream("linux\n"u8.ToArray());
+        stream.Seek(0, SeekOrigin.End);
+
+        SshNetCommandClient.BoundedText output = SshNetCommandClient.ReadBoundedText(stream, 32);
+
+        Assert.Equal("linux\n", output.Value);
+        Assert.False(output.Truncated);
+    }
+
     private static ConfiguredSshCommandExecutor CreateExecutor(
         ISshCommandClient client,
         int outputLimitBytes

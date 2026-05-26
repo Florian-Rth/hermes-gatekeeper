@@ -3,6 +3,8 @@ services:
     build:
       context: ./backend
       dockerfile: src/Gatekeeper.Api/Dockerfile
+    depends_on:
+      - demo-ssh
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
@@ -14,6 +16,9 @@ services:
       GATEKEEPER_SQLITE_DATA_PATH: ${GATEKEEPER_SQLITE_DATA_PATH:-/data/gatekeeper.db}
     ports:
       - "5209:8080"
+    volumes:
+      - ./demo/ssh-client/gatekeeper_demo_ssh_key:/app/demo-ssh/gatekeeper_demo_ssh_key:ro
+      - ./demo/ssh-client/known_hosts:/app/demo-ssh/known_hosts:ro
 
   frontend:
     build:
@@ -23,3 +28,10 @@ services:
       - backend
     ports:
       - "5173:80"
+
+  demo-ssh:
+    build:
+      context: ./demo/ssh-target
+      dockerfile: Dockerfile
+    expose:
+      - "22"

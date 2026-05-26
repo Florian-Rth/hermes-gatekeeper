@@ -31,19 +31,19 @@ Der Kern soll generisch bleiben:
 
 ## Aktueller Status
 
-Der Dummy-MVP-Kern ist bis einschließlich lokaler Admin-Login-Session, Approval/Deny, Session Actions, Lifecycle Controls und Audit Browsing implementiert und validiert. Für den echten MVP fehlt als nächste Phase noch der generische SSH-read-only Connector.
+Der MVP-Kern ist bis einschließlich generischem SSH-read-only Connector mit reproduzierbarer lokaler Compose-Demo implementiert und validiert. Neben Dummy Actions kann Gatekeeper nach Approval typisierte, serverseitig konfigurierte read-only SSH-Actions gegen ein kontrolliertes Demo-Ziel ausführen.
 
 Aktuell funktioniert:
 
 ```text
-Access Request -> Admin Login -> Approve/Deny in Web UI -> Session -> Execute typed dummy action -> Lifecycle controls -> Audit browsing
+Access Request -> Admin Login -> Approve/Deny in Web UI -> Session -> Execute typed dummy or SSH read-only action -> Lifecycle controls -> Audit browsing
 ```
 
 Implementiert sind:
 
 - `backend/`: .NET-10-Solution mit ASP.NET Core/FastEndpoints, EF Core, SQLite und Migrations
 - `frontend/`: React/Vite-App mit Admin-Login, Approval-Dashboard, Session Lifecycle Controls, Audit Feed und pnpm-Skripten für Check, Test und Build
-- Docker-Compose-Baseline für lokale Demo-/Dev-Starts
+- Docker-Compose-Baseline für lokale Demo-/Dev-Starts inklusive kontrolliertem `demo-ssh` Target
 - Access-Request-API:
   - `POST /api/v1/access-requests`
   - `GET /api/v1/access-requests/{id}`
@@ -61,6 +61,7 @@ Implementiert sind:
   - `POST /api/v1/sessions/{id}/complete`
   - `POST /api/v1/sessions/{id}/revoke`
 - Dummy Action Adapter mit `test.echo`, `test.status.read` und `test.fail`
+- Generischer SSH-read-only Connector mit serverseitig konfiguriertem Demo-Target `demo-ssh`, Capability-Profil `remote.readonly.inspect` und Actions `system.status.read`, `disk.usage.read`, `service.status.read`
 - Audit API und Events für Request-Erstellung, Admin Login/Logout, Approval/Deny, Session-Erzeugung, Lifecycle-Übergänge und Action-Entscheidungen/Ausführung
 - Approval-Web-UI:
   - lokalen Admin Login via HttpOnly Cookie-Session
@@ -69,7 +70,7 @@ Implementiert sind:
   - Session Summary, Action Budget, Revoke/Complete und optionale Dummy Action anzeigen
   - Audit Events mit Filtern browsen
 
-Noch nicht implementiert sind der generische SSH-read-only Connector als MVP-Realitätsnachweis, globale Session-Operations-UI, OIDC/TOTP/Passkeys/mTLS und Multi-Admin Approval. Spezielle Connectoren wie Home Assistant, Docker und Proxmox bleiben Post-MVP.
+Noch nicht implementiert sind globale Session-Operations-UI, OIDC/TOTP/Passkeys/mTLS und Multi-Admin Approval. Spezielle Connectoren wie Home Assistant, Docker und Proxmox bleiben Post-MVP.
 
 Der detaillierte Projektstand für zukünftige Agents steht in `docs/current-status.md`.
 
@@ -145,10 +146,14 @@ Ports der Compose-Baseline:
 - Backend API: `http://localhost:5209`
 - Backend Health: `http://localhost:5209/health`
 - Frontend: `http://localhost:5173`
+- Demo SSH target: interner Compose-Service `demo-ssh` auf Port 22, nicht auf den Host veröffentlicht
+
+Die Compose-Demo konfiguriert den Backend-Connector für `demo-ssh` mit dem lokalen Capability-Profil `remote.readonly.inspect`. Der vollständige Request -> Approve -> Execute -> Audit Ablauf steht in `docs/phase-8-compose-ssh-demo.md`.
 
 ## Dokumente
 
 - `docs/current-status.md` — aktueller Projektstand, implementierte Phasen, bekannte Lücken und nächste sinnvolle Schritte
+- `docs/phase-8-compose-ssh-demo.md` — lokale Compose-Demo für den generischen SSH-read-only Connector mit Request -> Approve -> Execute -> Audit Ablauf
 - `docs/vision.md` — Zielbild, Motivation, Kernprinzipien
 - `docs/architecture.md` — Architekturentwurf, Komponenten, Datenflüsse
 - `docs/interface-model.md` — HTTP API vs. Hermes Toolset, Agent Interface

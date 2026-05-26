@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned. This phase is now part of the MVP boundary. Do not replace it with a special-purpose connector.
+Implemented through Slice B5. The MVP now includes the generic SSH read-only connector plus a reproducible Docker Compose demo target. Do not replace it with a special-purpose connector.
 
 ## Phase Goal
 
@@ -168,6 +168,8 @@ Expected tests:
 - Audit does not include private key path content, command secrets, raw unrestricted output, or credentials.
 
 ### Slice B5 — Compose/demo test target
+
+Status: Implemented. See `docs/phase-8-compose-ssh-demo.md` for the runnable request -> approve -> execute -> audit walkthrough.
 
 Goal: Provide the canonical safe local/demo way to validate the SSH connector.
 

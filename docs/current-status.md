@@ -1,20 +1,20 @@
 # Hermes Gatekeeper — Current Project Status
 
-Last updated: 2026-05-25
+Last updated: 2026-05-26
 Current branch: `main`
-Latest product/deploy commit: `2cfe218 feat: replace admin token UI with login session`
+Latest product/deploy commit: `2a41127 feat: enrich ssh action audit details`
 
 ## Executive Summary
 
-Hermes Gatekeeper has a working backend MVP core through Phase 5, a session lifecycle/audit web UI through Phase 6, and local admin cookie authentication through Phase 7:
+Hermes Gatekeeper has a working backend MVP core through Phase 5, a session lifecycle/audit web UI through Phase 6, local admin cookie authentication through Phase 7, and the Phase 8 generic SSH read-only connector with a local Compose demo target:
 
 ```text
-Access Request -> Admin Login -> Approve/Deny -> Session -> Execute typed dummy action -> Lifecycle controls in UI -> Audit browsing UI
+Access Request -> Admin Login -> Approve/Deny -> Session -> Execute typed dummy or SSH read-only action -> Lifecycle controls in UI -> Audit browsing UI
 ```
 
-The backend is implemented with .NET 10, ASP.NET Core/FastEndpoints, EF Core, SQLite, migrations, and integration tests. The frontend now has a browser dashboard for listing requests, reviewing details, logging in as local admin, approving/denying, viewing session lifecycle state, running allowed dummy actions, and browsing audit events.
+The backend is implemented with .NET 10, ASP.NET Core/FastEndpoints, EF Core, SQLite, migrations, and integration tests. The frontend has a browser dashboard for listing requests, reviewing details, logging in as local admin, approving/denying, viewing session lifecycle state, running allowed dummy actions, and browsing audit events. Docker Compose can start the backend, frontend, and a controlled low-privilege `demo-ssh` target for local SSH connector validation.
 
-Phase 5 added backend session lifecycle controls, action-budget enforcement, lazy expiry, and an admin audit listing API. Phase 6 exposed those capabilities in the web UI with compound SessionLifecycleCard and AuditFeed components. Phase 7 replaced the manually entered visible admin token with local admin login and HttpOnly cookie-backed browser session auth for admin operations. Future agents should treat the backend action loop, lifecycle controls, audit API, lifecycle/audit UI, and local admin login/session flow as implemented and validated. Do not re-plan or rebuild Phases 0-7 unless the repository state contradicts this document.
+Phase 8 added the generic SSH read-only connector. It keeps SSH credentials server-side, authorizes `target` + named `action` against approved capability profiles, executes only configured read-only commands with bounded output/timeouts, enriches audit metadata, and documents the full request -> approve -> execute -> audit flow in `docs/phase-8-compose-ssh-demo.md`. Future agents should treat the backend action loop, lifecycle controls, audit API, lifecycle/audit UI, local admin login/session flow, SSH read-only connector, and Compose SSH demo as implemented and validated. Do not re-plan or rebuild Phases 0-8 unless the repository state contradicts this document.
 
 ## Implemented and Committed
 
@@ -349,6 +349,40 @@ Important current limitation:
 - Login rate limiting is in-memory only.
 - No global session list endpoint/UI; the UI works with known sessions from the request/approval flow.
 
+### Phase 8 — Generic SSH Read-only Connector
+
+Latest committed slice before B5: `2a41127 feat: enrich ssh action audit details`
+
+Implemented:
+
+- Server-side SSH connector configuration model for named targets, profiles, actions, timeouts, output limits, and allowlisted parameters.
+- Session action request shape now supports SSH execution with `target`, `action`, and `parameters` while retaining the older dummy `capability`/`payload` shape.
+- Approval grants target aliases plus capability profiles, for example `demo-ssh` and `remote.readonly.inspect`.
+- Execution validates that the approved target/profile permits the requested action before dispatch.
+- SSH command execution uses configured argv/templates only; agents never send raw command strings and never receive SSH credentials.
+- SSH execution has bounded timeout and output handling, typed connection/auth/timeout failures, and structured non-zero command results.
+- Audit enrichment for SSH decisions/results includes target alias, action, safe parameter summary, exit status, duration, timeout/truncation flags, output size metadata, and reason codes without key content or unbounded raw output.
+- Docker Compose demo target:
+  - service: `demo-ssh`
+  - user: `gatekeeper-readonly`
+  - internal-only SSH port 22
+  - password/root login disabled
+  - TTY, SFTP, and forwarding disabled in target sshd config
+  - authorized key forced to a tiny read-only command wrapper for the configured demo commands
+  - demo-only client key/known_hosts files under `demo/ssh-client/` and demo-only target host/authorized key files under `demo/ssh-target/`
+- Development Compose backend configuration for `demo-ssh` with read-only actions:
+  - `system.status.read`
+  - `disk.usage.read`
+  - `service.status.read` with allowlisted parameter `service=sshd`
+- Full local request -> approve -> execute -> audit walkthrough in `docs/phase-8-compose-ssh-demo.md`.
+
+Security-relevant behavior:
+
+- No public raw shell endpoint.
+- No sudo, write actions, TTY/interactivity, file transfer, or port forwarding.
+- Demo key material is local/demo-only and not suitable for real VMs or shared environments.
+- Real VM configuration should use deployment-specific low-privilege users, keys outside the repository, pinned known_hosts entries, and the same typed read-only action model.
+
 ## Current API Surface
 
 ### Health
@@ -387,13 +421,37 @@ GATEKEEPER_ADMIN_SESSION_IDLE_MINUTES
 - `POST /api/v1/sessions/{id}/complete`
 - `POST /api/v1/sessions/{id}/revoke`
 
-Session action request shape:
+Session action request shapes:
+
+Dummy adapter compatibility shape:
 
 ```json
 {
   "capability": "test.echo",
   "payload": {
     "message": "hello"
+  }
+}
+```
+
+SSH read-only connector shape:
+
+```json
+{
+  "target": "demo-ssh",
+  "action": "system.status.read",
+  "parameters": {}
+}
+```
+
+Parameterized SSH action example:
+
+```json
+{
+  "target": "demo-ssh",
+  "action": "service.status.read",
+  "parameters": {
+    "service": "sshd"
   }
 }
 ```
@@ -432,30 +490,29 @@ Session action success response shape:
 These are not bugs in the current phase; they are intentionally deferred scope:
 
 - No global session list endpoint/UI yet.
+- No SSH target/policy management UI; SSH targets/profiles/actions are server-side configuration.
 - No action history UI beyond the audit event API.
 - No agent authentication for request creation/action execution beyond current MVP boundaries.
-- No real target adapters yet; the next MVP phase is a generic SSH read-only connector.
-- No production/HomeLab integration yet.
+- No production/HomeLab integration yet; only the controlled local Compose SSH demo is configured.
 - No raw shell and no break-glass flow.
 - No OIDC, mTLS, TOTP, Passkeys, or multi-admin approval.
 
 ## Recommended Next Phase
 
-Recommended next phase: Phase 8 — Generic SSH read-only connector for the MVP.
+Recommended next phase: hardening/release-candidate work for the MVP.
 
 Reason:
 
-- A real MVP must prove the end goal in minimal form: a controlled agent request can result in a bounded, audited action against a real target class.
-- Special-purpose connectors such as Home Assistant, Docker, Proxmox, and HTTP service adapters stay out of the MVP.
-- A generic SSH read-only connector is broadly applicable across systems while still allowing strict typed actions and no raw shell exposure.
+- The generic SSH read-only connector now proves the end goal in minimal form: a controlled agent request can result in a bounded, audited action against a real target class.
+- The next work should harden deployment/configuration, agent auth boundaries, operations, and production readiness rather than adding special-purpose connectors.
+- Special-purpose connectors such as Home Assistant, Docker, Proxmox, and HTTP service adapters stay out of the MVP unless explicitly selected later.
 
 Suggested scope:
 
-- Add a generic SSH connector with typed read-only actions, not a free-form shell.
-- Configure named SSH targets with host, port, user, auth reference, command timeout, and command allowlist/action mapping.
-- Start with low-risk read-only actions such as `ssh.command.read`, `system.status.read`, `disk.usage.read`, and `service.status.read` only where mapped in config.
+- Harden deployment docs and secret handling for non-demo SSH targets.
+- Add agent authentication/authorization for request creation and action execution if selected.
+- Improve operational visibility and release checks.
 - Keep write actions, sudo, TTY, interactive commands, file upload/download, port forwarding, and arbitrary command execution out of the MVP.
-- Follow with a hardening/release-candidate phase after the SSH connector is validated.
 
 ## Important Agent Instructions
 
@@ -469,6 +526,7 @@ Future agents should:
    - Minimal approval web UI is implemented.
    - Backend lifecycle/audit controls and their frontend UI are implemented.
    - Local admin login/cookie auth is implemented in Phase 7.
+   - Generic SSH read-only connector and local Compose demo target are implemented in Phase 8.
 4. Keep all productive-system access behind typed adapters and explicit approvals.
 5. Do not add raw shell, sudo, write actions, or special HomeLab adapters until Florian explicitly chooses that phase.
 6. Keep using integration tests for full HTTP flows, especially security and audit behavior.

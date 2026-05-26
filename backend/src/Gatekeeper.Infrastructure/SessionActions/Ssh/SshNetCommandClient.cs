@@ -135,12 +135,12 @@ public sealed class SshNetCommandClient : ISshCommandClient
                 );
             }
 
-            command.EndExecute(asyncResult);
             BoundedText stdout = ReadBoundedText(command.OutputStream, request.OutputLimitBytes);
             BoundedText stderr = ReadBoundedText(
                 command.ExtendedOutputStream,
                 request.OutputLimitBytes
             );
+            command.EndExecute(asyncResult);
 
             return SshCommandClientResult.Completed(
                 command.ExitStatus ?? -1,
@@ -231,8 +231,17 @@ public sealed class SshNetCommandClient : ISshCommandClient
         return false;
     }
 
-    private static BoundedText ReadBoundedText(Stream stream, int outputLimitBytes)
+    private static void RewindIfPossible(Stream stream)
     {
+        if (stream.CanSeek)
+        {
+            stream.Seek(0, SeekOrigin.Begin);
+        }
+    }
+
+    internal static BoundedText ReadBoundedText(Stream stream, int outputLimitBytes)
+    {
+        RewindIfPossible(stream);
         int effectiveLimit = outputLimitBytes > 0 ? outputLimitBytes : 1;
         byte[] buffer = new byte[4096];
         using var output = new MemoryStream(capacity: effectiveLimit);
@@ -279,7 +288,7 @@ public sealed class SshNetCommandClient : ISshCommandClient
         return string.Empty;
     }
 
-    private sealed class BoundedText
+    internal sealed class BoundedText
     {
         public BoundedText(string value, bool truncated)
         {
