@@ -28,17 +28,35 @@ This phase must not add:
 - Home Assistant, Docker, Proxmox, Kubernetes, or other special-purpose adapters.
 - UI for editing SSH targets or policies.
 
+## Grill-Me Decisions
+
+Phase-8 planning uses autonomous Grill-Me: the orchestrator answers questions from repository state, project docs, and prior decisions. Florian is only asked for genuinely non-inferable product, security, or architecture choices.
+
+Resolved decisions for this phase:
+
+- Approval grants a target plus a server-side capability profile, for example `demo-ssh` + `remote.readonly.inspect`.
+- A capability profile contains server-side named actions. It is an approval/policy concept, not an agent-provided command bundle.
+- Action execution uses `target` + `action` + `parameters`. The agent does not have to send the profile name for each execution.
+- Gatekeeper checks whether any approved profile for the approved target contains the requested action.
+- The canonical MVP/demo target is a controlled SSH container in Docker Compose. A real VM setup may be documented as an additional path, but it is not the required MVP validation path.
+- Phase 8 reuses the existing session action endpoint and flow. Do not add a separate SSH-specific public API endpoint.
+- SSH targets, profiles, actions, command mappings, parameter allowlists, timeouts, and output limits are configured server-side for the MVP. No DB or UI policy management in this phase.
+- Frontend work is backend-first and minimal. Do not add SSH target management UI.
+
 ## Security Model
 
 - Gatekeeper owns SSH credentials; agents never see them.
 - SSH targets are named and configured server-side.
+- SSH capability profiles are named and configured server-side.
 - SSH actions are named and mapped server-side to concrete commands/templates.
-- Agent request must include target and capability/action name, not arbitrary shell text.
-- Approved session must include the target and capability.
+- Agent execution request includes target, action, and typed parameters, not arbitrary shell text.
+- Approved session must include the target and at least one profile that permits the requested action.
 - Command timeout is mandatory.
 - Output byte/line limit is mandatory.
 - Stderr handling must be bounded.
-- Audit records action name, target alias, exit status, duration, output summary/truncation metadata, and reason codes; do not dump unrestricted raw output into audit details.
+- Non-zero exit is reported structurally when an allowed read-only command ran; it is not automatically a policy violation.
+- Policy/adapter failures are distinct result categories, e.g. unknown target, unknown action, forbidden target/action/profile, invalid parameter, SSH connection/auth failure, timeout.
+- Audit records action name, target alias, profile/capability context when available, safe parameter values, exit status, duration, output summary/truncation metadata, and reason codes; do not dump unrestricted raw output into audit details.
 
 ## Suggested Minimal Action Set
 
@@ -57,43 +75,64 @@ Exact command strings should be finalized during the phase Grill-Me and based on
 
 ## Configuration Shape
 
-Prefer a config-file based MVP over DB/UI management. Example conceptual shape:
+Prefer a config-file based MVP over DB/UI management. Use ASP.NET configuration binding from JSON/ENV-compatible options unless a later phase justifies YAML.
 
-```yaml
-ssh:
-  targets:
-    test-vm:
-      host: 192.0.2.10
-      port: 22
-      username: gatekeeper-readonly
-      privateKeyPath: /run/secrets/gatekeeper_test_vm_key
-      knownHostsPath: /app/config/known_hosts
-      timeoutSeconds: 10
-      actions:
-        system.status.read:
-          command: ["uname", "-a"]
-          outputLimitBytes: 8192
-        disk.usage.read:
-          command: ["df", "-h"]
-          outputLimitBytes: 8192
-        service.status.read:
-          commandTemplate: ["systemctl", "is-active", "{service}"]
-          allowedParameters:
-            service: ["nginx", "docker", "ssh"]
+Conceptual shape:
+
+```json
+{
+  "SshConnector": {
+    "Targets": {
+      "demo-ssh": {
+        "Host": "demo-ssh",
+        "Port": 22,
+        "Username": "gatekeeper-readonly",
+        "PrivateKeyPath": "/run/secrets/gatekeeper_demo_ssh_key",
+        "KnownHostsPath": "/app/config/known_hosts",
+        "DefaultTimeoutSeconds": 10,
+        "DefaultOutputLimitBytes": 8192,
+        "Profiles": {
+          "remote.readonly.inspect": {
+            "Actions": ["system.status.read", "disk.usage.read", "service.status.read"]
+          }
+        },
+        "Actions": {
+          "system.status.read": {
+            "Command": ["uname", "-a"],
+            "OutputLimitBytes": 8192
+          },
+          "disk.usage.read": {
+            "Command": ["df", "-h"],
+            "OutputLimitBytes": 8192
+          },
+          "service.status.read": {
+            "CommandTemplate": ["systemctl", "is-active", "{service}"],
+            "AllowedParameters": {
+              "service": ["ssh"]
+            },
+            "OutputLimitBytes": 8192
+          }
+        }
+      }
+    }
+  }
+}
 ```
 
-The actual implementation may use ASP.NET configuration binding from JSON/YAML/ENV-compatible options if that better fits the existing stack.
+Commands must be modeled as argv arrays or strictly typed templates. Avoid shell-string concatenation. Template parameters must be allowlisted or strictly validated before execution.
 
 ## Backend Slices
 
 ### Slice B1 — Connector contracts and config model
 
-Goal: Define SSH target/action configuration and adapter contract without executing SSH yet.
+Goal: Define SSH target/action/profile configuration and adapter contract without executing SSH yet.
 
 Expected tests:
 
-- Valid config loads named target and action.
-- Missing target/action returns a typed failure.
+- Valid config loads named target, profile, and action.
+- Approved profile membership can authorize a requested `target` + `action`.
+- Missing target/action/profile returns a typed failure.
+- Invalid action parameters return a typed failure.
 - Agent-supplied arbitrary command is not part of the public action request contract.
 
 ### Slice B2 — SSH execution adapter
@@ -130,17 +169,18 @@ Expected tests:
 
 ### Slice B5 — Compose/demo test target
 
-Goal: Provide a safe local/demo way to validate the SSH connector.
+Goal: Provide the canonical safe local/demo way to validate the SSH connector.
 
-Preferred direction:
+Direction:
 
-- Add a controlled test SSH container or documented test VM setup.
+- Add a controlled test SSH container to Docker Compose.
 - Use a read-only low-privilege user.
-- Keep credentials local/demo-only.
+- Keep credentials local/demo-only and never document private secret values in prose.
+- Document an optional real-VM setup path separately.
 
 Expected validation:
 
-- `docker compose up` can run Gatekeeper and a demo SSH target, or README documents exactly how to point Gatekeeper at a test VM.
+- `docker compose up` can run Gatekeeper and the demo SSH target.
 - Full flow works: request -> approve -> SSH read-only action -> audit.
 
 ## Frontend Scope

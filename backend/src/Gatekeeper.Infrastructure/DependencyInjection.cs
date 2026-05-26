@@ -4,6 +4,7 @@ using Gatekeeper.Application.Sessions;
 using Gatekeeper.Infrastructure.Persistence;
 using Gatekeeper.Infrastructure.Persistence.Repositories;
 using Gatekeeper.Infrastructure.SessionActions;
+using Gatekeeper.Infrastructure.SessionActions.Ssh;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -38,6 +39,8 @@ public static class DependencyInjection
         services.AddScoped<ISessionService, SessionService>();
         services.AddScoped<ISessionActionService, SessionActionService>();
         services.AddScoped<ISessionActionAdapter, DummySessionActionAdapter>();
+        services.AddSingleton(BuildSshConnectorOptions(configuration));
+        services.AddSingleton<ISshActionPolicy, ConfiguredSshActionPolicy>();
         services.AddSingleton(
             SessionLifecycleOptions.FromConfiguredValue(
                 configuration[SessionMaxActionCountVariable]
@@ -46,6 +49,129 @@ public static class DependencyInjection
         );
 
         return services;
+    }
+
+    private static SshConnectorOptions BuildSshConnectorOptions(IConfiguration configuration)
+    {
+        var options = new SshConnectorOptions();
+        IConfigurationSection targetsSection = configuration.GetSection(
+            $"{SshConnectorOptions.SectionName}:Targets"
+        );
+
+        foreach (IConfigurationSection targetSection in targetsSection.GetChildren())
+        {
+            var target = new SshTargetOptions
+            {
+                Host = targetSection["Host"] ?? string.Empty,
+                Port = ReadIntInRange(targetSection, "Port", 22, 1, 65535),
+                Username = targetSection["Username"] ?? string.Empty,
+                PrivateKeyPath = targetSection["PrivateKeyPath"] ?? string.Empty,
+                KnownHostsPath = targetSection["KnownHostsPath"] ?? string.Empty,
+                DefaultTimeoutSeconds = ReadPositiveInt(targetSection, "DefaultTimeoutSeconds", 10),
+                DefaultOutputLimitBytes = ReadPositiveInt(
+                    targetSection,
+                    "DefaultOutputLimitBytes",
+                    8192
+                ),
+            };
+
+            foreach (
+                IConfigurationSection profileSection in targetSection
+                    .GetSection("Profiles")
+                    .GetChildren()
+            )
+            {
+                target.Profiles[profileSection.Key] = new SshProfileOptions
+                {
+                    Actions = profileSection
+                        .GetSection("Actions")
+                        .GetChildren()
+                        .Select(a => a.Value ?? string.Empty)
+                        .Where(a => !string.IsNullOrWhiteSpace(a))
+                        .ToList(),
+                };
+            }
+
+            foreach (
+                IConfigurationSection actionSection in targetSection
+                    .GetSection("Actions")
+                    .GetChildren()
+            )
+            {
+                var action = new SshActionOptions
+                {
+                    Command = actionSection
+                        .GetSection("Command")
+                        .GetChildren()
+                        .Select(a => a.Value ?? string.Empty)
+                        .Where(a => !string.IsNullOrWhiteSpace(a))
+                        .ToList(),
+                    CommandTemplate = actionSection
+                        .GetSection("CommandTemplate")
+                        .GetChildren()
+                        .Select(a => a.Value ?? string.Empty)
+                        .Where(a => !string.IsNullOrWhiteSpace(a))
+                        .ToList(),
+                    TimeoutSeconds = ReadPositiveNullableInt(actionSection, "TimeoutSeconds"),
+                    OutputLimitBytes = ReadPositiveNullableInt(actionSection, "OutputLimitBytes"),
+                };
+
+                foreach (
+                    IConfigurationSection parameterSection in actionSection
+                        .GetSection("AllowedParameters")
+                        .GetChildren()
+                )
+                {
+                    action.AllowedParameters[parameterSection.Key] = parameterSection
+                        .GetChildren()
+                        .Select(v => v.Value ?? string.Empty)
+                        .Where(v => !string.IsNullOrWhiteSpace(v))
+                        .ToList();
+                }
+
+                target.Actions[actionSection.Key] = action;
+            }
+
+            options.Targets[targetSection.Key] = target;
+        }
+
+        return options;
+    }
+
+    private static int ReadIntInRange(
+        IConfigurationSection section,
+        string key,
+        int defaultValue,
+        int minimumValue,
+        int maximumValue
+    )
+    {
+        if (!int.TryParse(section[key], out int value))
+        {
+            return defaultValue;
+        }
+
+        return value >= minimumValue && value <= maximumValue ? value : defaultValue;
+    }
+
+    private static int ReadPositiveInt(IConfigurationSection section, string key, int defaultValue)
+    {
+        if (!int.TryParse(section[key], out int value))
+        {
+            return defaultValue;
+        }
+
+        return value > 0 ? value : defaultValue;
+    }
+
+    private static int? ReadPositiveNullableInt(IConfigurationSection section, string key)
+    {
+        if (!int.TryParse(section[key], out int value))
+        {
+            return null;
+        }
+
+        return value > 0 ? value : null;
     }
 
     private static string ResolveConnectionString(IConfiguration configuration)
