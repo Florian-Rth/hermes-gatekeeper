@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using Gatekeeper.Application.AccessRequests;
 using Gatekeeper.Application.Common;
@@ -73,7 +75,15 @@ public sealed class SessionActionService : ISessionActionService
         if (session.Status != SessionStatus.Active)
         {
             string reason = "Session is expired or inactive.";
-            await AddDeniedAuditAsync(session, command, now, reason, cancellationToken);
+            await AddDeniedAuditAsync(
+                session,
+                command,
+                now,
+                reason,
+                command.IsSshAction ? ToInactiveSessionReasonCode(session) : null,
+                null,
+                cancellationToken
+            );
             await SaveChangesAsync(cancellationToken);
             return SessionActionResult.Conflicted(reason);
         }
@@ -91,7 +101,15 @@ public sealed class SessionActionService : ISessionActionService
                 cancellationToken
             );
             string reason = "Session is expired or inactive.";
-            await AddDeniedAuditAsync(session, command, now, reason, cancellationToken);
+            await AddDeniedAuditAsync(
+                session,
+                command,
+                now,
+                reason,
+                command.IsSshAction ? "session_expired" : null,
+                null,
+                cancellationToken
+            );
             await SaveChangesAsync(cancellationToken);
             return SessionActionResult.Conflicted(reason);
         }
@@ -114,7 +132,15 @@ public sealed class SessionActionService : ISessionActionService
         if (!session.AllowedTargets.Contains(command.Target, StringComparer.Ordinal))
         {
             string reason = "Target is not allowed for this session.";
-            await AddDeniedAuditAsync(session, command, now, reason, cancellationToken);
+            await AddDeniedAuditAsync(
+                session,
+                command,
+                now,
+                reason,
+                "target_not_allowed",
+                null,
+                cancellationToken
+            );
             await SaveChangesAsync(cancellationToken);
             return SessionActionResult.Forbidden(reason);
         }
@@ -134,18 +160,43 @@ public sealed class SessionActionService : ISessionActionService
         if (!policyResult.Succeeded)
         {
             string reason = SanitizePolicyFailure(policyResult.FailureReason);
-            await AddDeniedAuditAsync(session, command, now, reason, cancellationToken);
+            await AddDeniedAuditAsync(
+                session,
+                command,
+                now,
+                reason,
+                ToReasonCode(policyResult.FailureReason),
+                null,
+                cancellationToken
+            );
             await SaveChangesAsync(cancellationToken);
             return MapPolicyFailure(policyResult.FailureReason, reason);
         }
 
-        bool reserved = await TryReserveActionSlotAsync(session, command, now, cancellationToken);
+        SshAuditDetails allowedAuditDetails = CreateSshAllowedAuditDetails(
+            policyResult.ResolvedAction!
+        );
+        bool reserved = await TryReserveActionSlotAsync(
+            session,
+            command,
+            now,
+            "none",
+            allowedAuditDetails,
+            cancellationToken
+        );
         if (!reserved)
         {
-            return await HandleReservationFailureAsync(session, command, now, cancellationToken);
+            return await HandleReservationFailureAsync(
+                session,
+                command,
+                now,
+                allowedAuditDetails,
+                cancellationToken
+            );
         }
 
         SshCommandExecutionResult executionResult;
+        long startedAt = Stopwatch.GetTimestamp();
         try
         {
             executionResult = await _sshCommandExecutor.ExecuteAsync(
@@ -161,6 +212,8 @@ public sealed class SessionActionService : ISessionActionService
             );
         }
 
+        long durationMilliseconds = (long)Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds;
+
         if (!executionResult.Succeeded)
         {
             string reason = SanitizeExecutionFailure(executionResult.FailureReason);
@@ -168,7 +221,19 @@ public sealed class SessionActionService : ISessionActionService
                 AuditEvent.CreateSessionActionFailed(
                     session.Id,
                     now,
-                    JsonSerializer.Serialize(ToAuditPayload(session, command, reason))
+                    JsonSerializer.Serialize(
+                        ToAuditPayload(
+                            session,
+                            command,
+                            reason,
+                            ToReasonCode(executionResult.FailureReason),
+                            CreateSshAuditDetails(
+                                policyResult.ResolvedAction,
+                                executionResult,
+                                durationMilliseconds
+                            )
+                        )
+                    )
                 ),
                 cancellationToken
             );
@@ -180,7 +245,19 @@ public sealed class SessionActionService : ISessionActionService
             AuditEvent.CreateSessionActionExecuted(
                 session.Id,
                 now,
-                JsonSerializer.Serialize(ToAuditPayload(session, command, null))
+                JsonSerializer.Serialize(
+                    ToAuditPayload(
+                        session,
+                        command,
+                        null,
+                        "none",
+                        CreateSshAuditDetails(
+                            policyResult.ResolvedAction,
+                            executionResult,
+                            durationMilliseconds
+                        )
+                    )
+                )
             ),
             cancellationToken
         );
@@ -230,10 +307,23 @@ public sealed class SessionActionService : ISessionActionService
             return SessionActionResult.ValidationFailed(reason);
         }
 
-        bool reserved = await TryReserveActionSlotAsync(session, command, now, cancellationToken);
+        bool reserved = await TryReserveActionSlotAsync(
+            session,
+            command,
+            now,
+            null,
+            null,
+            cancellationToken
+        );
         if (!reserved)
         {
-            return await HandleReservationFailureAsync(session, command, now, cancellationToken);
+            return await HandleReservationFailureAsync(
+                session,
+                command,
+                now,
+                null,
+                cancellationToken
+            );
         }
 
         SessionActionAdapterResult adapterResult = await _adapter.ExecuteAsync(
@@ -285,13 +375,15 @@ public sealed class SessionActionService : ISessionActionService
         Session session,
         ExecuteSessionActionCommand command,
         DateTimeOffset now,
+        string? reasonCode,
+        SshAuditDetails? sshDetails,
         CancellationToken cancellationToken
     )
     {
         AuditEvent allowedAuditEvent = AuditEvent.CreateSessionActionAllowed(
             session.Id,
             now,
-            JsonSerializer.Serialize(ToAuditPayload(session, command, null))
+            JsonSerializer.Serialize(ToAuditPayload(session, command, null, reasonCode, sshDetails))
         );
 
         return await _unitOfWork.TryReserveActionSlotAndSaveChangesAsync(
@@ -306,6 +398,7 @@ public sealed class SessionActionService : ISessionActionService
         Session session,
         ExecuteSessionActionCommand command,
         DateTimeOffset now,
+        SshAuditDetails? sshDetails,
         CancellationToken cancellationToken
     )
     {
@@ -321,7 +414,15 @@ public sealed class SessionActionService : ISessionActionService
                 AuditEvent.CreateActionCountExceeded(
                     session.Id,
                     now,
-                    JsonSerializer.Serialize(ToAuditPayload(latest, command, reason))
+                    JsonSerializer.Serialize(
+                        ToAuditPayload(
+                            latest,
+                            command,
+                            reason,
+                            command.IsSshAction ? "action_count_exceeded" : null,
+                            sshDetails
+                        )
+                    )
                 ),
                 cancellationToken
             );
@@ -335,6 +436,8 @@ public sealed class SessionActionService : ISessionActionService
             command,
             now,
             inactiveReason,
+            command.IsSshAction ? ToInactiveSessionReasonCode(latest ?? session) : null,
+            null,
             cancellationToken
         );
         await SaveChangesAsync(cancellationToken);
@@ -349,11 +452,26 @@ public sealed class SessionActionService : ISessionActionService
         CancellationToken cancellationToken
     )
     {
+        return AddDeniedAuditAsync(session, command, now, reason, null, null, cancellationToken);
+    }
+
+    private Task AddDeniedAuditAsync(
+        Session session,
+        ExecuteSessionActionCommand command,
+        DateTimeOffset now,
+        string reason,
+        string? reasonCode,
+        SshAuditDetails? sshDetails,
+        CancellationToken cancellationToken
+    )
+    {
         return AddAuditAsync(
             AuditEvent.CreateSessionActionDenied(
                 session.Id,
                 now,
-                JsonSerializer.Serialize(ToAuditPayload(session, command, reason))
+                JsonSerializer.Serialize(
+                    ToAuditPayload(session, command, reason, reasonCode, sshDetails)
+                )
             ),
             cancellationToken
         );
@@ -422,6 +540,73 @@ public sealed class SessionActionService : ISessionActionService
         };
     }
 
+    private static string ToReasonCode(SshActionPolicyFailureReason failureReason)
+    {
+        return failureReason switch
+        {
+            SshActionPolicyFailureReason.UnknownTarget => "target_not_allowed",
+            SshActionPolicyFailureReason.UnknownAction => "action_not_allowed",
+            SshActionPolicyFailureReason.MissingProfileMembership => "profile_not_allowed",
+            SshActionPolicyFailureReason.InvalidParameter => "invalid_parameter",
+            SshActionPolicyFailureReason.InvalidConfiguration => "invalid_configuration",
+            _ => "ssh_policy_denied",
+        };
+    }
+
+    private static string ToReasonCode(SshCommandExecutionFailureReason failureReason)
+    {
+        return failureReason switch
+        {
+            SshCommandExecutionFailureReason.Timeout => "ssh_execution_timeout",
+            SshCommandExecutionFailureReason.ConnectionFailed => "ssh_execution_connection_failed",
+            SshCommandExecutionFailureReason.AuthenticationFailed =>
+                "ssh_execution_authentication_failed",
+            SshCommandExecutionFailureReason.UnknownTarget => "ssh_execution_unknown_target",
+            SshCommandExecutionFailureReason.InvalidResolvedCommand =>
+                "ssh_execution_invalid_resolved_command",
+            SshCommandExecutionFailureReason.ClientFailed => "ssh_execution_client_failed",
+            _ => "ssh_execution_failed",
+        };
+    }
+
+    private static string ToInactiveSessionReasonCode(Session session)
+    {
+        return session.Status == SessionStatus.Expired ? "session_expired" : "session_inactive";
+    }
+
+    private static SshAuditDetails CreateSshAllowedAuditDetails(SshResolvedAction resolvedAction)
+    {
+        return new SshAuditDetails(
+            resolvedAction.SafeParameters,
+            null,
+            null,
+            false,
+            false,
+            false,
+            null,
+            null
+        );
+    }
+
+    private static SshAuditDetails CreateSshAuditDetails(
+        SshResolvedAction? resolvedAction,
+        SshCommandExecutionResult executionResult,
+        long durationMilliseconds
+    )
+    {
+        SshCommandOutput? output = executionResult.Output;
+        return new SshAuditDetails(
+            resolvedAction?.SafeParameters,
+            output?.ExitCode,
+            durationMilliseconds,
+            executionResult.FailureReason == SshCommandExecutionFailureReason.Timeout,
+            output?.StdoutTruncated ?? false,
+            output?.StderrTruncated ?? false,
+            output is null ? null : Encoding.UTF8.GetByteCount(output.Stdout),
+            output is null ? null : Encoding.UTF8.GetByteCount(output.Stderr)
+        );
+    }
+
     private static object ToSshResult(SshCommandOutput output)
     {
         return new
@@ -437,17 +622,103 @@ public sealed class SessionActionService : ISessionActionService
     private static object ToAuditPayload(
         Session session,
         ExecuteSessionActionCommand command,
-        string? reason
+        string? reason,
+        string? reasonCode = null,
+        SshAuditDetails? sshDetails = null
     )
     {
+        if (command.IsSshAction)
+        {
+            return new
+            {
+                SessionId = session.Id,
+                session.AccessRequestId,
+                TargetAlias = command.Target,
+                Action = command.Action,
+                SafeParameters = sshDetails?.SafeParameters,
+                ExitStatus = sshDetails?.ExitStatus,
+                DurationMs = sshDetails?.DurationMilliseconds,
+                TimedOut = sshDetails?.TimedOut,
+                StdoutTruncated = sshDetails?.StdoutTruncated,
+                StderrTruncated = sshDetails?.StderrTruncated,
+                Output = sshDetails?.Output,
+                Reason = reason,
+                ReasonCode = reasonCode,
+            };
+        }
+
         return new
         {
             SessionId = session.Id,
             session.AccessRequestId,
-            Capability = command.IsSshAction ? command.Action : command.Capability,
-            Target = command.IsSshAction ? command.Target : null,
-            Action = command.IsSshAction ? command.Action : null,
+            Capability = command.Capability,
+            Target = (string?)null,
+            TargetAlias = (string?)null,
+            Action = (string?)null,
+            SafeParameters = (IReadOnlyDictionary<string, string>?)null,
+            ExitStatus = (int?)null,
+            DurationMs = (long?)null,
+            TimedOut = (bool?)null,
+            StdoutTruncated = (bool?)null,
+            StderrTruncated = (bool?)null,
+            Output = (SshOutputAuditMetadata?)null,
             Reason = reason,
+            ReasonCode = reasonCode,
         };
+    }
+
+    private sealed class SshAuditDetails
+    {
+        public SshAuditDetails(
+            IReadOnlyDictionary<string, string>? safeParameters,
+            int? exitStatus,
+            long? durationMilliseconds,
+            bool timedOut,
+            bool stdoutTruncated,
+            bool stderrTruncated,
+            int? stdoutBytes,
+            int? stderrBytes
+        )
+        {
+            SafeParameters = safeParameters is null
+                ? null
+                : new Dictionary<string, string>(safeParameters, StringComparer.Ordinal);
+            ExitStatus = exitStatus;
+            DurationMilliseconds = durationMilliseconds;
+            TimedOut = timedOut;
+            StdoutTruncated = stdoutTruncated;
+            StderrTruncated = stderrTruncated;
+            Output =
+                stdoutBytes.HasValue || stderrBytes.HasValue
+                    ? new SshOutputAuditMetadata(stdoutBytes, stderrBytes)
+                    : null;
+        }
+
+        public IReadOnlyDictionary<string, string>? SafeParameters { get; }
+
+        public int? ExitStatus { get; }
+
+        public long? DurationMilliseconds { get; }
+
+        public bool TimedOut { get; }
+
+        public bool StdoutTruncated { get; }
+
+        public bool StderrTruncated { get; }
+
+        public SshOutputAuditMetadata? Output { get; }
+    }
+
+    private sealed class SshOutputAuditMetadata
+    {
+        public SshOutputAuditMetadata(int? stdoutBytes, int? stderrBytes)
+        {
+            StdoutBytes = stdoutBytes;
+            StderrBytes = stderrBytes;
+        }
+
+        public int? StdoutBytes { get; }
+
+        public int? StderrBytes { get; }
     }
 }

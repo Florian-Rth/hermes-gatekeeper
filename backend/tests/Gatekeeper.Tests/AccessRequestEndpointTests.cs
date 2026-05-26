@@ -800,9 +800,49 @@ public sealed class AccessRequestEndpointTests
             document.RootElement.GetProperty("result").GetProperty("exitCode").GetInt32()
         );
         Assert.Equal(
-            "ok",
+            "secret stdout",
             document.RootElement.GetProperty("result").GetProperty("stdout").GetString()
         );
+        JsonElement auditPayload = await GetSingleAuditPayloadAsync(
+            factory,
+            sessionId,
+            "SessionActionExecuted"
+        );
+        Assert.Equal("prod-api", auditPayload.GetProperty("TargetAlias").GetString());
+        Assert.Equal("logs.tail", auditPayload.GetProperty("Action").GetString());
+        AssertNoLegacySshAuditFields(auditPayload);
+        Assert.Equal(
+            "100",
+            auditPayload.GetProperty("SafeParameters").GetProperty("lines").GetString()
+        );
+        Assert.Equal(0, auditPayload.GetProperty("ExitStatus").GetInt32());
+        Assert.Equal(JsonValueKind.Number, auditPayload.GetProperty("DurationMs").ValueKind);
+        Assert.False(auditPayload.GetProperty("TimedOut").GetBoolean());
+        Assert.True(auditPayload.GetProperty("StdoutTruncated").GetBoolean());
+        Assert.False(auditPayload.GetProperty("StderrTruncated").GetBoolean());
+        Assert.Equal(13, auditPayload.GetProperty("Output").GetProperty("StdoutBytes").GetInt32());
+        Assert.Equal(13, auditPayload.GetProperty("Output").GetProperty("StderrBytes").GetInt32());
+        Assert.Equal("none", auditPayload.GetProperty("ReasonCode").GetString());
+        string auditPayloadJson = auditPayload.GetRawText();
+        Assert.DoesNotContain("secret stdout", auditPayloadJson);
+        Assert.DoesNotContain("secret stderr", auditPayloadJson);
+        Assert.DoesNotContain("/var/log/app.log", auditPayloadJson);
+        JsonElement allowedAuditPayload = await GetSingleAuditPayloadAsync(
+            factory,
+            sessionId,
+            "SessionActionAllowed"
+        );
+        Assert.Equal("prod-api", allowedAuditPayload.GetProperty("TargetAlias").GetString());
+        Assert.Equal("logs.tail", allowedAuditPayload.GetProperty("Action").GetString());
+        AssertNoLegacySshAuditFields(allowedAuditPayload);
+        Assert.Equal(
+            "100",
+            allowedAuditPayload.GetProperty("SafeParameters").GetProperty("lines").GetString()
+        );
+        Assert.Equal("none", allowedAuditPayload.GetProperty("ReasonCode").GetString());
+        Assert.Equal(JsonValueKind.Null, allowedAuditPayload.GetProperty("ExitStatus").ValueKind);
+        Assert.Equal(JsonValueKind.Null, allowedAuditPayload.GetProperty("DurationMs").ValueKind);
+        Assert.Equal(JsonValueKind.Null, allowedAuditPayload.GetProperty("Output").ValueKind);
         Assert.Equal(1, policy.ResolveCount);
         Assert.Equal(1, executor.ExecuteCount);
         Assert.Equal(1, await GetSessionActionCountAsync(factory, sessionId));
@@ -844,6 +884,15 @@ public sealed class AccessRequestEndpointTests
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Equal(0, executor.ExecuteCount);
         Assert.Equal(0, await GetSessionActionCountAsync(factory, sessionId));
+        JsonElement auditPayload = await GetSingleAuditPayloadAsync(
+            factory,
+            sessionId,
+            "SessionActionDenied"
+        );
+        Assert.Equal("prod-db", auditPayload.GetProperty("TargetAlias").GetString());
+        Assert.Equal("logs.tail", auditPayload.GetProperty("Action").GetString());
+        AssertNoLegacySshAuditFields(auditPayload);
+        Assert.Equal("target_not_allowed", auditPayload.GetProperty("ReasonCode").GetString());
         await AssertAuditEventExistsAsync(factory, sessionId, "SessionActionDenied");
     }
 
@@ -881,7 +930,61 @@ public sealed class AccessRequestEndpointTests
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Equal(0, executor.ExecuteCount);
         Assert.Equal(0, await GetSessionActionCountAsync(factory, sessionId));
+        JsonElement auditPayload = await GetSingleAuditPayloadAsync(
+            factory,
+            sessionId,
+            "SessionActionDenied"
+        );
+        Assert.Equal("prod-api", auditPayload.GetProperty("TargetAlias").GetString());
+        Assert.Equal("logs.tail", auditPayload.GetProperty("Action").GetString());
+        AssertNoLegacySshAuditFields(auditPayload);
+        Assert.Equal("profile_not_allowed", auditPayload.GetProperty("ReasonCode").GetString());
         await AssertAuditEventExistsAsync(factory, sessionId, "SessionActionDenied");
+    }
+
+    [Fact]
+    public async Task Should_ReturnBadRequest_When_SshActionParametersAreInvalid()
+    {
+        var executor = new FakeSshCommandExecutor();
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory(
+            configureServices: services =>
+            {
+                services.RemoveAll<ISshActionPolicy>();
+                services.RemoveAll<ISshCommandExecutor>();
+                services.AddSingleton<ISshActionPolicy>(new FakeSshActionPolicy());
+                services.AddSingleton<ISshCommandExecutor>(executor);
+            }
+        );
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        Guid accessRequestId = await CreateAccessRequestAsync(client, ["ssh.read"]);
+        Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/sessions/{sessionId}/actions",
+            new
+            {
+                target = "prod-api",
+                action = "logs.tail",
+                parameters = new { lines = "invalid" },
+            },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(0, executor.ExecuteCount);
+        Assert.Equal(0, await GetSessionActionCountAsync(factory, sessionId));
+        JsonElement auditPayload = await GetSingleAuditPayloadAsync(
+            factory,
+            sessionId,
+            "SessionActionDenied"
+        );
+        Assert.Equal("prod-api", auditPayload.GetProperty("TargetAlias").GetString());
+        Assert.Equal("logs.tail", auditPayload.GetProperty("Action").GetString());
+        AssertNoLegacySshAuditFields(auditPayload);
+        Assert.Equal("invalid_parameter", auditPayload.GetProperty("ReasonCode").GetString());
     }
 
     [Fact]
@@ -918,6 +1021,15 @@ public sealed class AccessRequestEndpointTests
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Equal(0, executor.ExecuteCount);
         Assert.Equal(0, await GetSessionActionCountAsync(factory, sessionId));
+        JsonElement auditPayload = await GetSingleAuditPayloadAsync(
+            factory,
+            sessionId,
+            "SessionActionDenied"
+        );
+        Assert.Equal("prod-api", auditPayload.GetProperty("TargetAlias").GetString());
+        Assert.Equal("unknown", auditPayload.GetProperty("Action").GetString());
+        AssertNoLegacySshAuditFields(auditPayload);
+        Assert.Equal("action_not_allowed", auditPayload.GetProperty("ReasonCode").GetString());
         await AssertAuditEventExistsAsync(factory, sessionId, "SessionActionDenied");
     }
 
@@ -1026,6 +1138,48 @@ public sealed class AccessRequestEndpointTests
     }
 
     [Fact]
+    public async Task Should_ReturnConflict_When_CompletedSessionReceivesSshAction()
+    {
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        Guid accessRequestId = await CreateAccessRequestAsync(client, ["ssh.read"]);
+        Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
+
+        using HttpResponseMessage completeResponse = await client.PostAsync(
+            $"/api/v1/sessions/{sessionId}/complete",
+            content: null,
+            TestContext.Current.CancellationToken
+        );
+        Assert.Equal(HttpStatusCode.OK, completeResponse.StatusCode);
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/sessions/{sessionId}/actions",
+            new
+            {
+                target = "prod-api",
+                action = "logs.tail",
+                parameters = new { lines = "100" },
+            },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        JsonElement auditPayload = await GetSingleAuditPayloadAsync(
+            factory,
+            sessionId,
+            "SessionActionDenied"
+        );
+        Assert.Equal("prod-api", auditPayload.GetProperty("TargetAlias").GetString());
+        Assert.Equal("logs.tail", auditPayload.GetProperty("Action").GetString());
+        AssertNoLegacySshAuditFields(auditPayload);
+        Assert.Equal("session_inactive", auditPayload.GetProperty("ReasonCode").GetString());
+        Assert.Equal(0, await GetSessionActionCountAsync(factory, sessionId));
+    }
+
+    [Fact]
     public async Task Should_ReturnNotFound_When_SessionDoesNotExist()
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
@@ -1062,6 +1216,41 @@ public sealed class AccessRequestEndpointTests
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         await AssertAuditEventExistsAsync(factory, sessionId, "SessionActionDenied");
+        Assert.Equal(0, await GetSessionActionCountAsync(factory, sessionId));
+    }
+
+    [Fact]
+    public async Task Should_ReturnConflict_When_ExpiredSessionReceivesSshAction()
+    {
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        Guid sessionId = Guid.NewGuid();
+        await SeedExpiredSessionAsync(factory, sessionId);
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/sessions/{sessionId}/actions",
+            new
+            {
+                target = "prod-api",
+                action = "logs.tail",
+                parameters = new { lines = "100" },
+            },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        JsonElement auditPayload = await GetSingleAuditPayloadAsync(
+            factory,
+            sessionId,
+            "SessionActionDenied"
+        );
+        Assert.Equal("prod-api", auditPayload.GetProperty("TargetAlias").GetString());
+        Assert.Equal("logs.tail", auditPayload.GetProperty("Action").GetString());
+        AssertNoLegacySshAuditFields(auditPayload);
+        Assert.Equal("session_expired", auditPayload.GetProperty("ReasonCode").GetString());
         Assert.Equal(0, await GetSessionActionCountAsync(factory, sessionId));
     }
 
@@ -1115,6 +1304,67 @@ public sealed class AccessRequestEndpointTests
         Assert.Equal(HttpStatusCode.Conflict, secondResponse.StatusCode);
         Assert.Equal(1, await GetSessionActionCountAsync(factory, sessionId));
         await AssertAuditEventExistsAsync(factory, sessionId, "ActionCountExceeded");
+    }
+
+    [Fact]
+    public async Task Should_ReturnConflictAndAuditReasonCode_When_SshActionCountLimitIsExceeded()
+    {
+        var executor = new FakeSshCommandExecutor();
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory(
+            maxActionCount: 1,
+            configureServices: services =>
+            {
+                services.RemoveAll<ISshActionPolicy>();
+                services.RemoveAll<ISshCommandExecutor>();
+                services.AddSingleton<ISshActionPolicy>(new FakeSshActionPolicy());
+                services.AddSingleton<ISshCommandExecutor>(executor);
+            }
+        );
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        Guid accessRequestId = await CreateAccessRequestAsync(client, ["ssh.read"]);
+        Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
+        var request = new
+        {
+            target = "prod-api",
+            action = "logs.tail",
+            parameters = new { lines = "100" },
+        };
+
+        using HttpResponseMessage firstResponse = await client.PostAsJsonAsync(
+            $"/api/v1/sessions/{sessionId}/actions",
+            request,
+            TestContext.Current.CancellationToken
+        );
+        using HttpResponseMessage secondResponse = await client.PostAsJsonAsync(
+            $"/api/v1/sessions/{sessionId}/actions",
+            request,
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, secondResponse.StatusCode);
+        Assert.Equal(1, executor.ExecuteCount);
+        Assert.Equal(1, await GetSessionActionCountAsync(factory, sessionId));
+        JsonElement auditPayload = await GetSingleAuditPayloadAsync(
+            factory,
+            sessionId,
+            "ActionCountExceeded"
+        );
+        Assert.Equal("action_count_exceeded", auditPayload.GetProperty("ReasonCode").GetString());
+        Assert.Equal("prod-api", auditPayload.GetProperty("TargetAlias").GetString());
+        Assert.Equal("logs.tail", auditPayload.GetProperty("Action").GetString());
+        AssertNoLegacySshAuditFields(auditPayload);
+        Assert.Equal(
+            "100",
+            auditPayload.GetProperty("SafeParameters").GetProperty("lines").GetString()
+        );
+        string auditPayloadJson = auditPayload.GetRawText();
+        Assert.DoesNotContain("secret stdout", auditPayloadJson);
+        Assert.DoesNotContain("secret stderr", auditPayloadJson);
+        Assert.DoesNotContain("/var/log/app.log", auditPayloadJson);
     }
 
     [Fact]
@@ -1305,6 +1555,31 @@ public sealed class AccessRequestEndpointTests
         );
     }
 
+    private static async Task<JsonElement> GetSingleAuditPayloadAsync(
+        AccessRequestApiFactory factory,
+        Guid aggregateId,
+        string eventType
+    )
+    {
+        await using AsyncServiceScope scope = factory.Services.CreateAsyncScope();
+        GatekeeperDbContext dbContext =
+            scope.ServiceProvider.GetRequiredService<GatekeeperDbContext>();
+        string payloadJson = await dbContext
+            .AuditEvents.Where(auditEvent =>
+                auditEvent.AggregateId == aggregateId && auditEvent.EventType == eventType
+            )
+            .Select(auditEvent => auditEvent.PayloadJson)
+            .SingleAsync(TestContext.Current.CancellationToken);
+        using JsonDocument document = JsonDocument.Parse(payloadJson);
+        return document.RootElement.Clone();
+    }
+
+    private static void AssertNoLegacySshAuditFields(JsonElement auditPayload)
+    {
+        Assert.False(auditPayload.TryGetProperty("Target", out _));
+        Assert.False(auditPayload.TryGetProperty("Capability", out _));
+    }
+
     private static async Task<int> GetSessionActionCountAsync(
         AccessRequestApiFactory factory,
         Guid sessionId
@@ -1408,6 +1683,18 @@ public sealed class AccessRequestEndpointTests
                 );
             }
 
+            if (
+                parameters.HasValue
+                && parameters.Value.TryGetProperty("lines", out JsonElement lines)
+                && string.Equals(lines.GetString(), "invalid", StringComparison.Ordinal)
+            )
+            {
+                return SshActionPolicyResult.Failed(
+                    SshActionPolicyFailureReason.InvalidParameter,
+                    "Invalid SSH action parameter."
+                );
+            }
+
             return SshActionPolicyResult.Success(
                 new SshResolvedAction(
                     targetAlias,
@@ -1433,7 +1720,7 @@ public sealed class AccessRequestEndpointTests
             ExecuteCount++;
             return Task.FromResult(
                 SshCommandExecutionResult.Completed(
-                    new SshCommandOutput(0, "ok", string.Empty, false, false)
+                    new SshCommandOutput(0, "secret stdout", "secret stderr", true, false)
                 )
             );
         }

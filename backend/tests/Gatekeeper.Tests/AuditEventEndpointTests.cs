@@ -150,6 +150,139 @@ public sealed class AuditEventEndpointTests
     }
 
     [Fact]
+    public async Task ListExposesSafeSshAuditMetadataOnly()
+    {
+        await using AuditEventApiFactory factory = new();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        Guid aggregateId = Guid.NewGuid();
+        await factory.SeedAsync(
+            new AuditEventEntity
+            {
+                Id = Guid.NewGuid(),
+                EventType = "SessionActionExecuted",
+                AggregateId = aggregateId,
+                OccurredAt = DateTimeOffset.Parse("2026-05-23T10:00:00Z"),
+                PayloadJson = JsonSerializer.Serialize(
+                    new
+                    {
+                        TargetAlias = "prod-api",
+                        Action = "logs.tail",
+                        SafeParameters = new { lines = "100" },
+                        ExitStatus = 0,
+                        DurationMs = 42,
+                        TimedOut = false,
+                        StdoutTruncated = true,
+                        StderrTruncated = false,
+                        Output = new
+                        {
+                            StdoutBytes = 13,
+                            StderrBytes = 7,
+                            Stdout = "secret stdout",
+                            Stderr = "secret stderr",
+                        },
+                        ReasonCode = "none",
+                        Host = "internal.example",
+                        Username = "root",
+                        PrivateKeyPath = "/run/secrets/key",
+                        RawCommand = "tail -n 100 /var/log/app.log",
+                        RawStdout = "secret stdout",
+                    }
+                ),
+            },
+            TestContext.Current.CancellationToken
+        );
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        await LoginAsAdminAsync(client);
+
+        using HttpResponseMessage response = await client.GetAsync(
+            "/api/v1/audit-events?eventType=SessionActionExecuted",
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument document = await ParseAsync(response);
+        JsonElement details = Assert
+            .Single(document.RootElement.GetProperty("items").EnumerateArray())
+            .GetProperty("details");
+        Assert.Equal("prod-api", details.GetProperty("targetAlias").GetString());
+        Assert.Equal("logs.tail", details.GetProperty("action").GetString());
+        Assert.Equal("{\"lines\":\"100\"}", details.GetProperty("safeParameters").GetString());
+        Assert.Equal("0", details.GetProperty("exitStatus").GetString());
+        Assert.Equal("42", details.GetProperty("durationMs").GetString());
+        Assert.Equal("false", details.GetProperty("timedOut").GetString());
+        Assert.Equal("true", details.GetProperty("stdoutTruncated").GetString());
+        Assert.Equal("false", details.GetProperty("stderrTruncated").GetString());
+        Assert.Equal(
+            "{\"stdoutBytes\":13,\"stderrBytes\":7}",
+            details.GetProperty("output").GetString()
+        );
+        Assert.Equal("none", details.GetProperty("reasonCode").GetString());
+        string responseJson = document.RootElement.GetRawText();
+        Assert.DoesNotContain("internal.example", responseJson);
+        Assert.DoesNotContain("root", responseJson);
+        Assert.DoesNotContain("/run/secrets/key", responseJson);
+        Assert.DoesNotContain("/var/log/app.log", responseJson);
+        Assert.DoesNotContain("secret stdout", responseJson);
+        Assert.DoesNotContain("secret stderr", responseJson);
+        Assert.False(details.TryGetProperty("host", out _));
+        Assert.False(details.TryGetProperty("username", out _));
+        Assert.False(details.TryGetProperty("rawCommand", out _));
+    }
+
+    [Fact]
+    public async Task ListDoesNotExposeMalformedScalarSshSafeDetails()
+    {
+        await using AuditEventApiFactory factory = new();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        Guid aggregateId = Guid.NewGuid();
+        await factory.SeedAsync(
+            new AuditEventEntity
+            {
+                Id = Guid.NewGuid(),
+                EventType = "SessionActionExecuted",
+                AggregateId = aggregateId,
+                OccurredAt = DateTimeOffset.Parse("2026-05-23T10:00:00Z"),
+                PayloadJson = JsonSerializer.Serialize(
+                    new
+                    {
+                        TargetAlias = "prod-api",
+                        Action = "logs.tail",
+                        SafeParameters = "privateKey=super-secret",
+                        Output = "raw secret stdout",
+                        ExitStatus = 0,
+                    }
+                ),
+            },
+            TestContext.Current.CancellationToken
+        );
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        await LoginAsAdminAsync(client);
+
+        using HttpResponseMessage response = await client.GetAsync(
+            "/api/v1/audit-events?eventType=SessionActionExecuted",
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument document = await ParseAsync(response);
+        JsonElement details = Assert
+            .Single(document.RootElement.GetProperty("items").EnumerateArray())
+            .GetProperty("details");
+        Assert.Equal("prod-api", details.GetProperty("targetAlias").GetString());
+        Assert.Equal("logs.tail", details.GetProperty("action").GetString());
+        Assert.Equal("0", details.GetProperty("exitStatus").GetString());
+        Assert.False(details.TryGetProperty("safeParameters", out _));
+        Assert.False(details.TryGetProperty("output", out _));
+        string responseJson = document.RootElement.GetRawText();
+        Assert.DoesNotContain("privateKey=super-secret", responseJson);
+        Assert.DoesNotContain("raw secret stdout", responseJson);
+    }
+
+    [Fact]
     public async Task ListAppliesEventTypeAggregateAndTimeFilters()
     {
         await using AuditEventApiFactory factory = new();

@@ -25,6 +25,15 @@ public sealed class EfAuditEventRepository : IAuditEventRepository, IAuditEventQ
         "comment",
         "sessionId",
         "accessRequestId",
+        "targetAlias",
+        "safeParameters",
+        "exitStatus",
+        "durationMs",
+        "timedOut",
+        "stdoutTruncated",
+        "stderrTruncated",
+        "output",
+        "reasonCode",
     ];
 
     private readonly GatekeeperDbContext _dbContext;
@@ -175,7 +184,43 @@ public sealed class EfAuditEventRepository : IAuditEventRepository, IAuditEventQ
                 continue;
             }
 
-            string? detailValue = property.Value.ValueKind switch
+            string? detailValue = ExtractDetailValue(key, property.Value);
+
+            if (!string.IsNullOrWhiteSpace(detailValue))
+            {
+                destination[key] = detailValue.Length <= 200 ? detailValue : detailValue[..200];
+            }
+        }
+    }
+
+    private static string? ExtractDetailValue(string key, JsonElement value)
+    {
+        if (string.Equals(key, "safeParameters", StringComparison.Ordinal))
+        {
+            return value.ValueKind == JsonValueKind.Object ? SerializeSafeParameters(value) : null;
+        }
+
+        if (string.Equals(key, "output", StringComparison.Ordinal))
+        {
+            return value.ValueKind == JsonValueKind.Object ? SerializeOutputMetadata(value) : null;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString(),
+            JsonValueKind.Number => value.GetRawText(),
+            JsonValueKind.True => "true",
+            JsonValueKind.False => "false",
+            _ => null,
+        };
+    }
+
+    private static string? SerializeSafeParameters(JsonElement value)
+    {
+        Dictionary<string, string> safeParameters = new(StringComparer.Ordinal);
+        foreach (JsonProperty property in value.EnumerateObject())
+        {
+            string? parameterValue = property.Value.ValueKind switch
             {
                 JsonValueKind.String => property.Value.GetString(),
                 JsonValueKind.Number => property.Value.GetRawText(),
@@ -184,11 +229,48 @@ public sealed class EfAuditEventRepository : IAuditEventRepository, IAuditEventQ
                 _ => null,
             };
 
-            if (!string.IsNullOrWhiteSpace(detailValue))
+            if (!string.IsNullOrWhiteSpace(parameterValue))
             {
-                destination[key] = detailValue.Length <= 200 ? detailValue : detailValue[..200];
+                safeParameters[property.Name] =
+                    parameterValue.Length <= 100 ? parameterValue : parameterValue[..100];
             }
         }
+
+        return safeParameters.Count == 0 ? null : JsonSerializer.Serialize(safeParameters);
+    }
+
+    private static string? SerializeOutputMetadata(JsonElement value)
+    {
+        Dictionary<string, int> outputMetadata = new(StringComparer.Ordinal);
+        if (TryGetInt32(value, "StdoutBytes", out int stdoutBytes))
+        {
+            outputMetadata["stdoutBytes"] = stdoutBytes;
+        }
+
+        if (TryGetInt32(value, "StderrBytes", out int stderrBytes))
+        {
+            outputMetadata["stderrBytes"] = stderrBytes;
+        }
+
+        return outputMetadata.Count == 0 ? null : JsonSerializer.Serialize(outputMetadata);
+    }
+
+    private static bool TryGetInt32(JsonElement source, string propertyName, out int value)
+    {
+        foreach (JsonProperty property in source.EnumerateObject())
+        {
+            if (
+                string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase)
+                && property.Value.ValueKind == JsonValueKind.Number
+                && property.Value.TryGetInt32(out value)
+            )
+            {
+                return true;
+            }
+        }
+
+        value = 0;
+        return false;
     }
 
     private static AuditEventEntity ToEntity(AuditEvent auditEvent)
