@@ -1,0 +1,356 @@
+using Gatekeeper.Application.Sessions;
+using Gatekeeper.Infrastructure.SessionActions.Ssh;
+
+namespace Gatekeeper.Tests;
+
+public sealed class SshCommandExecutorTests
+{
+    [Fact]
+    public async Task ExecuteAsync_Should_ReturnBoundedOutputAndExitCode_When_CommandCompletes()
+    {
+        var client = new FakeSshCommandClient(
+            SshCommandClientResult.Completed(0, "linux\n", "warning\n")
+        );
+        ConfiguredSshCommandExecutor executor = CreateExecutor(client, outputLimitBytes: 32);
+
+        SshCommandExecutionResult result = await executor.ExecuteAsync(
+            CreateResolvedAction(outputLimitBytes: 32),
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(SshCommandExecutionFailureReason.None, result.FailureReason);
+        Assert.NotNull(result.Output);
+        Assert.Equal(0, result.Output.ExitCode);
+        Assert.Equal("linux\n", result.Output.Stdout);
+        Assert.Equal("warning\n", result.Output.Stderr);
+        Assert.False(result.Output.StdoutTruncated);
+        Assert.False(result.Output.StderrTruncated);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_Should_TruncateOutputAndMarkIt_When_OutputExceedsLimit()
+    {
+        var client = new FakeSshCommandClient(
+            SshCommandClientResult.Completed(0, "abcdef", "uvwxyz")
+        );
+        ConfiguredSshCommandExecutor executor = CreateExecutor(client, outputLimitBytes: 3);
+
+        SshCommandExecutionResult result = await executor.ExecuteAsync(
+            CreateResolvedAction(outputLimitBytes: 3),
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.True(result.Succeeded);
+        Assert.NotNull(result.Output);
+        Assert.Equal("abc", result.Output.Stdout);
+        Assert.Equal("uvw", result.Output.Stderr);
+        Assert.True(result.Output.StdoutTruncated);
+        Assert.True(result.Output.StderrTruncated);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_Should_MapTimeoutToTypedFailure_When_ClientTimesOut()
+    {
+        var client = new FakeSshCommandClient(
+            SshCommandClientResult.Failed(SshCommandClientFailureReason.Timeout, "Timed out.")
+        );
+        ConfiguredSshCommandExecutor executor = CreateExecutor(client, outputLimitBytes: 32);
+
+        SshCommandExecutionResult result = await executor.ExecuteAsync(
+            CreateResolvedAction(outputLimitBytes: 32),
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(SshCommandExecutionFailureReason.Timeout, result.FailureReason);
+        Assert.Null(result.Output);
+        Assert.Equal("SSH command timed out.", result.Error);
+    }
+
+    [Theory]
+    [InlineData(
+        SshCommandClientFailureReason.ConnectionFailed,
+        SshCommandExecutionFailureReason.ConnectionFailed
+    )]
+    [InlineData(
+        SshCommandClientFailureReason.AuthenticationFailed,
+        SshCommandExecutionFailureReason.AuthenticationFailed
+    )]
+    [InlineData(
+        SshCommandClientFailureReason.ClientFailed,
+        SshCommandExecutionFailureReason.ClientFailed
+    )]
+    public async Task ExecuteAsync_Should_MapClientFailureToTypedFailure_When_ClientFails(
+        SshCommandClientFailureReason clientFailureReason,
+        SshCommandExecutionFailureReason executionFailureReason
+    )
+    {
+        var client = new FakeSshCommandClient(
+            SshCommandClientResult.Failed(clientFailureReason, "SSH client failed.")
+        );
+        ConfiguredSshCommandExecutor executor = CreateExecutor(client, outputLimitBytes: 32);
+
+        SshCommandExecutionResult result = await executor.ExecuteAsync(
+            CreateResolvedAction(outputLimitBytes: 32),
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(executionFailureReason, result.FailureReason);
+        Assert.Null(result.Output);
+        Assert.Equal(ExpectedSanitizedError(clientFailureReason), result.Error);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_Should_EnforceTimeout_When_ClientIgnoresCancellation()
+    {
+        var client = new FakeSshCommandClient(_ =>
+            new TaskCompletionSource<SshCommandClientResult>().Task
+        );
+        ConfiguredSshCommandExecutor executor = CreateExecutor(client, outputLimitBytes: 32);
+
+        SshCommandExecutionResult result = await executor.ExecuteAsync(
+            CreateResolvedAction(outputLimitBytes: 32, timeout: TimeSpan.FromMilliseconds(25)),
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(SshCommandExecutionFailureReason.Timeout, result.FailureReason);
+        Assert.Equal("SSH command timed out.", result.Error);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_Should_SanitizeClientError_When_ClientErrorContainsSecrets()
+    {
+        const string secretPath = "/run/secrets/demo-key";
+        var client = new FakeSshCommandClient(
+            SshCommandClientResult.Failed(
+                SshCommandClientFailureReason.AuthenticationFailed,
+                $"Failed reading {secretPath} for gatekeeper-readonly@demo-ssh."
+            )
+        );
+        ConfiguredSshCommandExecutor executor = CreateExecutor(client, outputLimitBytes: 32);
+
+        SshCommandExecutionResult result = await executor.ExecuteAsync(
+            CreateResolvedAction(outputLimitBytes: 32),
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(SshCommandExecutionFailureReason.AuthenticationFailed, result.FailureReason);
+        Assert.Equal("SSH authentication failed.", result.Error);
+        Assert.DoesNotContain(secretPath, result.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain("demo-ssh", result.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain("gatekeeper-readonly", result.Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_Should_TruncateUtf8WithoutSplittingMultibyteCharacter()
+    {
+        var client = new FakeSshCommandClient(SshCommandClientResult.Completed(0, "éé", "😀x"));
+        ConfiguredSshCommandExecutor executor = CreateExecutor(client, outputLimitBytes: 3);
+
+        SshCommandExecutionResult result = await executor.ExecuteAsync(
+            CreateResolvedAction(outputLimitBytes: 3),
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.True(result.Succeeded);
+        Assert.NotNull(result.Output);
+        Assert.Equal("é", result.Output.Stdout);
+        Assert.Equal(string.Empty, result.Output.Stderr);
+        Assert.True(result.Output.StdoutTruncated);
+        Assert.True(result.Output.StderrTruncated);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_Should_ReturnNonZeroExitStructurally_When_CommandRan()
+    {
+        var client = new FakeSshCommandClient(
+            SshCommandClientResult.Completed(3, string.Empty, "inactive\n")
+        );
+        ConfiguredSshCommandExecutor executor = CreateExecutor(client, outputLimitBytes: 32);
+
+        SshCommandExecutionResult result = await executor.ExecuteAsync(
+            CreateResolvedAction(outputLimitBytes: 32),
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(SshCommandExecutionFailureReason.None, result.FailureReason);
+        Assert.NotNull(result.Output);
+        Assert.Equal(3, result.Output.ExitCode);
+        Assert.Equal("inactive\n", result.Output.Stderr);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_Should_UseResolvedCommandArgv_When_CreatingClientRequest()
+    {
+        var client = new FakeSshCommandClient(
+            SshCommandClientResult.Completed(0, string.Empty, string.Empty)
+        );
+        ConfiguredSshCommandExecutor executor = CreateExecutor(client, outputLimitBytes: 32);
+        SshResolvedAction resolvedAction = CreateResolvedAction(
+            new[] { "systemctl", "is-active", "ssh; rm -rf /" },
+            outputLimitBytes: 32
+        );
+
+        await executor.ExecuteAsync(resolvedAction, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(client.LastRequest);
+        Assert.Equal("systemctl", client.LastRequest.Executable);
+        Assert.Equal(new[] { "is-active", "ssh; rm -rf /" }, client.LastRequest.Arguments);
+        Assert.Equal("demo-ssh", client.LastRequest.Host);
+        Assert.Equal(2222, client.LastRequest.Port);
+        Assert.Equal("gatekeeper-readonly", client.LastRequest.Username);
+        Assert.Equal(TimeSpan.FromSeconds(5), client.LastRequest.Timeout);
+        Assert.Equal(32, client.LastRequest.OutputLimitBytes);
+    }
+
+    [Fact]
+    public void IsKnownHostTrusted_Should_AcceptMatchingKnownHostsEntry()
+    {
+        byte[] hostKey = Convert.FromBase64String("AQIDBAU=");
+        string knownHosts = "[demo-ssh]:2222 ssh-ed25519 AQIDBAU=";
+
+        bool trusted = SshNetCommandClient.IsKnownHostTrusted(
+            knownHosts,
+            "demo-ssh",
+            2222,
+            "ssh-ed25519",
+            hostKey
+        );
+
+        Assert.True(trusted);
+    }
+
+    [Fact]
+    public void IsKnownHostTrusted_Should_RejectMismatchedKnownHostsEntry()
+    {
+        byte[] hostKey = Convert.FromBase64String("AQIDBAU=");
+        string knownHosts = "[demo-ssh]:2222 ssh-ed25519 BQYHCAk=";
+
+        bool trusted = SshNetCommandClient.IsKnownHostTrusted(
+            knownHosts,
+            "demo-ssh",
+            2222,
+            "ssh-ed25519",
+            hostKey
+        );
+
+        Assert.False(trusted);
+    }
+
+    [Fact]
+    public void BuildCommandText_Should_PosixQuoteResolvedArgv()
+    {
+        var request = new SshCommandClientRequest(
+            "demo-ssh",
+            22,
+            "readonly",
+            "/key",
+            "/known_hosts",
+            "printf",
+            new[] { "hello world", "it's", "$(whoami)", string.Empty },
+            TimeSpan.FromSeconds(5),
+            128
+        );
+
+        string commandText = SshNetCommandClient.BuildCommandText(request);
+
+        Assert.Equal("'printf' 'hello world' 'it'\"'\"'s' '$(whoami)' ''", commandText);
+    }
+
+    private static ConfiguredSshCommandExecutor CreateExecutor(
+        ISshCommandClient client,
+        int outputLimitBytes
+    )
+    {
+        return new ConfiguredSshCommandExecutor(CreateOptions(outputLimitBytes), client);
+    }
+
+    private static SshConnectorOptions CreateOptions(int outputLimitBytes)
+    {
+        return new SshConnectorOptions
+        {
+            Targets = new Dictionary<string, SshTargetOptions>(StringComparer.Ordinal)
+            {
+                ["demo-ssh"] = new SshTargetOptions
+                {
+                    Host = "demo-ssh",
+                    Port = 2222,
+                    Username = "gatekeeper-readonly",
+                    PrivateKeyPath = "/run/secrets/demo-key",
+                    KnownHostsPath = "/app/config/known_hosts",
+                    DefaultTimeoutSeconds = 5,
+                    DefaultOutputLimitBytes = outputLimitBytes,
+                },
+            },
+        };
+    }
+
+    private static SshResolvedAction CreateResolvedAction(int outputLimitBytes)
+    {
+        return CreateResolvedAction(new[] { "uname", "-a" }, outputLimitBytes);
+    }
+
+    private static SshResolvedAction CreateResolvedAction(
+        IReadOnlyList<string> command,
+        int outputLimitBytes,
+        TimeSpan? timeout = null
+    )
+    {
+        return new SshResolvedAction(
+            "demo-ssh",
+            "system.status.read",
+            command,
+            new Dictionary<string, string>(StringComparer.Ordinal),
+            timeout ?? TimeSpan.FromSeconds(5),
+            outputLimitBytes
+        );
+    }
+
+    private static SshResolvedAction CreateResolvedAction(int outputLimitBytes, TimeSpan timeout)
+    {
+        return CreateResolvedAction(new[] { "uname", "-a" }, outputLimitBytes, timeout);
+    }
+
+    private static string ExpectedSanitizedError(SshCommandClientFailureReason failureReason)
+    {
+        return failureReason switch
+        {
+            SshCommandClientFailureReason.ConnectionFailed => "SSH connection failed.",
+            SshCommandClientFailureReason.AuthenticationFailed => "SSH authentication failed.",
+            _ => "SSH command client failed.",
+        };
+    }
+
+    private sealed class FakeSshCommandClient : ISshCommandClient
+    {
+        private readonly Func<SshCommandClientRequest, Task<SshCommandClientResult>> _execute;
+
+        public FakeSshCommandClient(SshCommandClientResult result)
+        {
+            _execute = _ => Task.FromResult(result);
+        }
+
+        public FakeSshCommandClient(
+            Func<SshCommandClientRequest, Task<SshCommandClientResult>> execute
+        )
+        {
+            _execute = execute;
+        }
+
+        public SshCommandClientRequest? LastRequest { get; private set; }
+
+        public Task<SshCommandClientResult> ExecuteAsync(
+            SshCommandClientRequest request,
+            CancellationToken cancellationToken
+        )
+        {
+            LastRequest = request;
+            return _execute(request);
+        }
+    }
+}

@@ -41,6 +41,8 @@ public static class DependencyInjection
         services.AddScoped<ISessionActionAdapter, DummySessionActionAdapter>();
         services.AddSingleton(BuildSshConnectorOptions(configuration));
         services.AddSingleton<ISshActionPolicy, ConfiguredSshActionPolicy>();
+        services.AddSingleton<ISshCommandClient, SshNetCommandClient>();
+        services.AddSingleton<ISshCommandExecutor, ConfiguredSshCommandExecutor>();
         services.AddSingleton(
             SessionLifecycleOptions.FromConfiguredValue(
                 configuration[SessionMaxActionCountVariable]
