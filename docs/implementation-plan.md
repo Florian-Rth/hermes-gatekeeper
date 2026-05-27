@@ -2,7 +2,7 @@
 
 ## Aktueller Implementierungsstand
 
-Stand 2026-05-25: Der tatsächlich umgesetzte Schnitt ist weiter als die ursprüngliche Phasenreihenfolge in diesem Dokument. Dieses Dokument ist weiterhin verbindlich und muss vor jeder weiteren Entwicklungsphase gepflegt werden.
+Stand 2026-05-27: Der tatsächlich umgesetzte Schnitt ist weiter als die ursprüngliche Phasenreihenfolge in diesem Dokument. Dieses Dokument ist weiterhin verbindlich und muss vor jeder weiteren Entwicklungsphase gepflegt werden.
 
 Abgeschlossen und auf `main` gepusht:
 
@@ -16,11 +16,12 @@ Abgeschlossen und auf `main` gepusht:
 - Phase 6 Session Lifecycle und Audit Visibility UI: `8a3e345 feat: add session lifecycle audit ui`
 - Phase 7 Backend Admin Cookie Auth: `a4a4ced feat: add local admin cookie authentication`
 - Phase 7 Frontend Login Session UI: `2cfe218 feat: replace admin token UI with login session`
+- Phase 8 Generic SSH Read-only Connector und Compose Demo Target: `7f99ff1 feat: add compose ssh demo target`
 
 Der aktuelle Backend-Kern kann:
 
 ```text
-Access Request -> Admin Login -> Approve/Deny in Web UI -> Session -> Execute typed dummy action -> Lifecycle controls in UI -> Audit browsing UI
+Access Request -> Admin Login -> Approve/Deny in Web UI -> Session -> Execute typed dummy or SSH read-only action -> Lifecycle controls in UI -> Audit browsing UI
 ```
 
 Wichtige Abweichung vom ursprünglichen Plan:
@@ -30,6 +31,7 @@ Wichtige Abweichung vom ursprünglichen Plan:
 - Die Minimal Approval Web UI ist inzwischen umgesetzt und kann Requests listen, Details anzeigen, approve/deny ausführen, Session Summary anzeigen und safe Dummy Actions anstoßen.
 - Session Lifecycle und Audit Visibility wurden backendseitig in Phase 5 umgesetzt und frontendseitig in Phase 6 sichtbar/bedienbar gemacht.
 - Phase 7 ersetzt den sichtbaren manuellen Admin Token durch lokale Admin-Login-/Cookie-Session-Auth für Admin-Operationen.
+- Phase 8 ergänzt den generischen SSH-read-only Connector mit serverseitig konfigurierten Targets/Actions, bounded Output/Timeouts, SSH-Audit-Enrichment und reproduzierbarer lokaler Compose-Demo.
 - Die ältere Phasennummerierung unten bleibt als strategischer Plan erhalten, ist aber nicht mehr exakt die Umsetzungsreihenfolge.
 
 Für zukünftige Agents ist `docs/current-status.md` die führende Statusquelle für den Ist-Zustand. Dieses Dokument bleibt der verbindliche Roadmap-/Planungsrahmen und darf nicht ignoriert oder spontan ersetzt werden.
@@ -109,11 +111,11 @@ Er legt fest:
 
 ### Commit Boundary
 
-Phase 7 ist in getrennten Backend-/Frontend-Slices umgesetzt und committed. Nächste Arbeit ist Phase 8: generischer SSH-read-only Connector als echter, minimaler MVP-Connector. MVP-Hardening/Release Candidate folgt danach.
+Phase 7 ist in getrennten Backend-/Frontend-Slices umgesetzt und committed. Phase 8 wurde danach als generischer SSH-read-only Connector umgesetzt. Nächste Arbeit ist Phase 9: MVP Hardening und Agent API Authentication.
 
 ---
 
-## Nächste konkrete Phase — Phase 8: Generic SSH Read-only Connector
+## Zuletzt abgeschlossene konkrete Phase — Phase 8: Generic SSH Read-only Connector
 
 ### Ziel
 
@@ -163,7 +165,63 @@ SSH ist dafür der generische MVP-Connector, weil er systemübergreifend nutzbar
 
 ### Commit Boundary
 
-Phase 8 endet erst, wenn der SSH-read-only Connector implementiert, getestet, reviewed, dokumentiert, committed und gepusht ist.
+Phase 8 ist abgeschlossen: Der SSH-read-only Connector, die SSH Audit-Anreicherung und das lokale Compose-Demo-Target sind implementiert, validiert, dokumentiert, committed und gepusht. Detailpläne:
+
+- `docs/phase-8-generic-ssh-readonly-connector.md`
+- `docs/phase-8-implementation-slices.md`
+- `docs/phase-8-compose-ssh-demo.md`
+
+---
+
+## Nächste konkrete Phase — Phase 9: MVP Hardening und Agent API Authentication
+
+### Ziel
+
+Der MVP soll nicht nur Admin-Entscheidungen schützen, sondern auch die Agent-Seite schließen: Nur konfigurierte Agenten dürfen Access Requests erstellen und Aktionen innerhalb genehmigter Sessions ausführen.
+
+### Ergebnis am Ende der Phase
+
+- `POST /api/v1/access-requests` verlangt einen gültigen Agent API Key.
+- `POST /api/v1/sessions/{sessionId}/actions` verlangt einen gültigen Agent API Key.
+- Agent API Keys werden serverseitig konfiguriert und fixed-time geprüft.
+- Erfolgreiche Request-/Action-Audit-Events enthalten eine nicht-geheime Agent Identity (`agentId`, `authMethod`).
+- Fehlgeschlagene Agent-Auth-Versuche werden mit bounded metadata auditiert.
+- Admin Cookie Auth und Agent API Auth bleiben getrennte Trust Boundaries.
+- Die Phase-8-Compose-SSH-Demo funktioniert weiter mit Agent-Key-Header.
+
+### Scope
+
+- Backend-only.
+- Statische serverseitige Agent-Key-Konfiguration für den MVP.
+- Header-Vertrag: `X-Gatekeeper-Agent-Key`.
+- Keine DB-Registry und keine Key-Management-UI.
+- Keine per-agent Target-/Capability-Scopes in Phase 9; Approval/Session/SSH-Policy erzwingen weiterhin konkrete Targets und Actions.
+
+### Nicht-Ziele
+
+- Keine Frontend-Änderungen.
+- Kein OIDC, mTLS, TOTP, Passkeys/WebAuthn, OAuth oder Multi-Admin Approval.
+- Keine produktive HomeLab-Integration.
+- Keine neuen Spezialconnectoren.
+- Keine freie Shell, kein sudo, keine Write Actions, keine TTYs, keine Dateiübertragung, kein Port Forwarding.
+
+### Validierung
+
+- TDD pro Backend-Slice.
+- Integrationstests für fehlenden/ungültigen/gültigen Agent Key auf Request Creation und Session Action Execution.
+- Boundary-Tests: Admin Cookie autorisiert Agent-Endpunkte nicht; Agent Key autorisiert Admin-Endpunkte nicht.
+- Audit-Tests für `agentId/authMethod` und fehlgeschlagene Auth-Versuche ohne Secret-Leakage.
+- Full Flow: Agent Request -> Admin Login/Approve -> Agent SSH read-only Action -> Audit.
+- Backend Gates via Docker SDK fallback: restore/build/test, CSharpier check auf `src tests`.
+- `docker compose config` und `docker compose build backend`.
+
+### Detailplan
+
+Der konkrete Phasenplan liegt in `docs/phase-9-mvp-hardening-agent-auth.md`.
+
+### Commit Boundary
+
+Phase 9 endet erst, wenn Agent API Authentication implementiert, getestet, reviewed, dokumentiert, committed und gepusht ist.
 
 ---
 

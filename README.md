@@ -153,6 +153,7 @@ Die Compose-Demo konfiguriert den Backend-Connector für `demo-ssh` mit dem loka
 ## Dokumente
 
 - `docs/current-status.md` — aktueller Projektstand, implementierte Phasen, bekannte Lücken und nächste sinnvolle Schritte
+- `docs/phase-9-mvp-hardening-agent-auth.md` — nächster Detailplan für MVP-Härtung und Agent API Authentication
 - `docs/phase-8-compose-ssh-demo.md` — lokale Compose-Demo für den generischen SSH-read-only Connector mit Request -> Approve -> Execute -> Audit Ablauf
 - `docs/vision.md` — Zielbild, Motivation, Kernprinzipien
 - `docs/architecture.md` — Architekturentwurf, Komponenten, Datenflüsse

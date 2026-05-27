@@ -1,8 +1,8 @@
 # Hermes Gatekeeper — Current Project Status
 
-Last updated: 2026-05-26
+Last updated: 2026-05-27
 Current branch: `main`
-Latest product/deploy commit: `2a41127 feat: enrich ssh action audit details`
+Latest product/deploy commit: `7f99ff1 feat: add compose ssh demo target`
 
 ## Executive Summary
 
@@ -499,20 +499,26 @@ These are not bugs in the current phase; they are intentionally deferred scope:
 
 ## Recommended Next Phase
 
-Recommended next phase: hardening/release-candidate work for the MVP.
+Recommended next phase: Phase 9 — MVP Hardening and Agent API Authentication.
+
+Detail plan: `docs/phase-9-mvp-hardening-agent-auth.md`.
 
 Reason:
 
 - The generic SSH read-only connector now proves the end goal in minimal form: a controlled agent request can result in a bounded, audited action against a real target class.
-- The next work should harden deployment/configuration, agent auth boundaries, operations, and production readiness rather than adding special-purpose connectors.
+- The largest remaining MVP security boundary is the agent side: `POST /api/v1/access-requests` and `POST /api/v1/sessions/{sessionId}/actions` should require configured Agent API keys before moving toward real HomeLab targets.
+- Admin Cookie Auth should remain separate from Agent API Auth.
 - Special-purpose connectors such as Home Assistant, Docker, Proxmox, and HTTP service adapters stay out of the MVP unless explicitly selected later.
 
-Suggested scope:
+Planned scope:
 
-- Harden deployment docs and secret handling for non-demo SSH targets.
-- Add agent authentication/authorization for request creation and action execution if selected.
-- Improve operational visibility and release checks.
-- Keep write actions, sudo, TTY, interactive commands, file upload/download, port forwarding, and arbitrary command execution out of the MVP.
+- Add static server-configured Agent API keys for the MVP.
+- Protect request creation and session action execution with `X-Gatekeeper-Agent-Key`.
+- Fixed-time key verification.
+- Add non-secret agent identity (`agentId`, `authMethod`) to successful request/action audit events.
+- Add bounded failed-auth audit events without API keys, raw headers, cookies, bodies, SSH credentials, or action output.
+- Update Compose/demo docs so the Phase 8 SSH demo continues to work with Agent Auth.
+- Keep write actions, sudo, TTY, interactive commands, file upload/download, port forwarding, arbitrary command execution, and production/HomeLab target onboarding out of Phase 9.
 
 ## Important Agent Instructions
 
