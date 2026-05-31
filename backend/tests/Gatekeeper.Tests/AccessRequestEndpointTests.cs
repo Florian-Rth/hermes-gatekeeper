@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Gatekeeper.Api.AgentAuthentication;
+using Gatekeeper.Application.AccessRequests;
 using Gatekeeper.Application.Sessions;
 using Gatekeeper.Core.Sessions;
 using Gatekeeper.Infrastructure.Persistence;
@@ -109,7 +110,12 @@ public sealed class AccessRequestEndpointTests
         );
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-        await AssertAuditEventCountAsync(factory, 0);
+        await AssertFailedAgentAuthenticationAuditAsync(
+            factory,
+            "/api/v1/access-requests",
+            "POST",
+            AgentAuthConstants.MissingKeyReason
+        );
     }
 
     [Fact]
@@ -130,7 +136,37 @@ public sealed class AccessRequestEndpointTests
         );
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-        await AssertAuditEventCountAsync(factory, 0);
+        await AssertFailedAgentAuthenticationAuditAsync(
+            factory,
+            "/api/v1/access-requests",
+            "POST",
+            AgentAuthConstants.InvalidKeyReason
+        );
+    }
+
+    [Fact]
+    public async Task PostAccessRequestWithoutAgentKeyReturnsUnauthorized_WhenFailedAuthAuditWriteFails()
+    {
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory(
+            configureServices: services =>
+            {
+                services.RemoveAll<IAuditEventRepository>();
+                services.AddScoped<IAuditEventRepository, ThrowingAuditEventRepository>();
+            }
+        );
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        client.DefaultRequestHeaders.Remove(AgentAuthConstants.HeaderName);
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            "/api/v1/access-requests",
+            CreateValidRequest(),
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]
@@ -151,6 +187,12 @@ public sealed class AccessRequestEndpointTests
         );
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        await AssertFailedAgentAuthenticationAuditAsync(
+            factory,
+            "/api/v1/access-requests",
+            "POST",
+            AgentAuthConstants.MissingKeyReason
+        );
     }
 
     [Fact]
@@ -847,6 +889,12 @@ public sealed class AccessRequestEndpointTests
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Equal(0, await GetSessionActionCountAsync(factory, sessionId));
         await AssertAuditEventDoesNotExistAsync(factory, sessionId, "SessionActionRequested");
+        await AssertFailedAgentAuthenticationAuditAsync(
+            factory,
+            "/api/v1/sessions/{sessionId}/actions",
+            "POST",
+            AgentAuthConstants.MissingKeyReason
+        );
     }
 
     [Fact]
@@ -871,6 +919,12 @@ public sealed class AccessRequestEndpointTests
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Equal(0, await GetSessionActionCountAsync(factory, sessionId));
         await AssertAuditEventDoesNotExistAsync(factory, sessionId, "SessionActionRequested");
+        await AssertFailedAgentAuthenticationAuditAsync(
+            factory,
+            "/api/v1/sessions/{sessionId}/actions",
+            "POST",
+            AgentAuthConstants.InvalidKeyReason
+        );
     }
 
     [Fact]
@@ -894,6 +948,75 @@ public sealed class AccessRequestEndpointTests
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Equal(0, await GetSessionActionCountAsync(factory, sessionId));
+        await AssertFailedAgentAuthenticationAuditAsync(
+            factory,
+            "/api/v1/sessions/{sessionId}/actions",
+            "POST",
+            AgentAuthConstants.MissingKeyReason
+        );
+    }
+
+    [Fact]
+    public async Task FailedAgentAuthenticationAuditContainsOnlyBoundedSafeFields()
+    {
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        client.DefaultRequestHeaders.Remove(AgentAuthConstants.HeaderName);
+        client.DefaultRequestHeaders.Add(AgentAuthConstants.HeaderName, "wrong-agent-key");
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            "/api/v1/access-requests",
+            CreateValidRequest(),
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        JsonElement payload = await GetSingleSystemAuditPayloadAsync(
+            factory,
+            "AgentAuthenticationFailed"
+        );
+        string payloadJson = payload.GetRawText();
+
+        Assert.Equal(4, payload.EnumerateObject().Count());
+        Assert.Equal("/api/v1/access-requests", payload.GetProperty("routeTemplate").GetString());
+        Assert.Equal("POST", payload.GetProperty("httpMethod").GetString());
+        Assert.Equal(
+            AgentAuthConstants.InvalidKeyReason,
+            payload.GetProperty("reasonCode").GetString()
+        );
+        Assert.Equal(
+            AgentAuthConstants.ApiKeyAuthMethod,
+            payload.GetProperty("authMethod").GetString()
+        );
+        Assert.DoesNotContain(TestAgentKey, payloadJson);
+        Assert.DoesNotContain("wrong-agent-key", payloadJson);
+        Assert.DoesNotContain(AgentAuthConstants.HeaderName, payloadJson);
+        Assert.DoesNotContain("Cookie", payloadJson);
+        Assert.DoesNotContain("cookie", payloadJson);
+        Assert.DoesNotContain("Investigate production incident", payloadJson);
+        Assert.DoesNotContain("tail logs", payloadJson);
+    }
+
+    [Fact]
+    public async Task ValidAgentAuthenticationDoesNotWriteFailedAuthenticationAudit()
+    {
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            "/api/v1/access-requests",
+            CreateValidRequest(),
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        await AssertSystemAuditEventCountAsync(factory, "AgentAuthenticationFailed", 0);
     }
 
     [Fact]
@@ -1744,6 +1867,43 @@ public sealed class AccessRequestEndpointTests
         Assert.Equal(expectedCount, auditCount);
     }
 
+    private static async Task AssertSystemAuditEventCountAsync(
+        AccessRequestApiFactory factory,
+        string eventType,
+        int expectedCount
+    )
+    {
+        await using AsyncServiceScope scope = factory.Services.CreateAsyncScope();
+        GatekeeperDbContext dbContext =
+            scope.ServiceProvider.GetRequiredService<GatekeeperDbContext>();
+        int auditCount = await dbContext.AuditEvents.CountAsync(
+            auditEvent => auditEvent.AggregateId == null && auditEvent.EventType == eventType,
+            TestContext.Current.CancellationToken
+        );
+        Assert.Equal(expectedCount, auditCount);
+    }
+
+    private static async Task AssertFailedAgentAuthenticationAuditAsync(
+        AccessRequestApiFactory factory,
+        string routeTemplate,
+        string httpMethod,
+        string reasonCode
+    )
+    {
+        await AssertSystemAuditEventCountAsync(factory, "AgentAuthenticationFailed", 1);
+        JsonElement payload = await GetSingleSystemAuditPayloadAsync(
+            factory,
+            "AgentAuthenticationFailed"
+        );
+        Assert.Equal(routeTemplate, payload.GetProperty("routeTemplate").GetString());
+        Assert.Equal(httpMethod, payload.GetProperty("httpMethod").GetString());
+        Assert.Equal(reasonCode, payload.GetProperty("reasonCode").GetString());
+        Assert.Equal(
+            AgentAuthConstants.ApiKeyAuthMethod,
+            payload.GetProperty("authMethod").GetString()
+        );
+    }
+
     private static async Task<JsonElement> GetSingleAuditPayloadAsync(
         AccessRequestApiFactory factory,
         Guid aggregateId,
@@ -1756,6 +1916,24 @@ public sealed class AccessRequestEndpointTests
         string payloadJson = await dbContext
             .AuditEvents.Where(auditEvent =>
                 auditEvent.AggregateId == aggregateId && auditEvent.EventType == eventType
+            )
+            .Select(auditEvent => auditEvent.PayloadJson)
+            .SingleAsync(TestContext.Current.CancellationToken);
+        using JsonDocument document = JsonDocument.Parse(payloadJson);
+        return document.RootElement.Clone();
+    }
+
+    private static async Task<JsonElement> GetSingleSystemAuditPayloadAsync(
+        AccessRequestApiFactory factory,
+        string eventType
+    )
+    {
+        await using AsyncServiceScope scope = factory.Services.CreateAsyncScope();
+        GatekeeperDbContext dbContext =
+            scope.ServiceProvider.GetRequiredService<GatekeeperDbContext>();
+        string payloadJson = await dbContext
+            .AuditEvents.Where(auditEvent =>
+                auditEvent.AggregateId == null && auditEvent.EventType == eventType
             )
             .Select(auditEvent => auditEvent.PayloadJson)
             .SingleAsync(TestContext.Current.CancellationToken);
@@ -1912,6 +2090,17 @@ public sealed class AccessRequestEndpointTests
                     new SshCommandOutput(0, "secret stdout", "secret stderr", true, false)
                 )
             );
+        }
+    }
+
+    private sealed class ThrowingAuditEventRepository : IAuditEventRepository
+    {
+        public Task AddAsync(
+            Gatekeeper.Core.AccessRequests.AuditEvent auditEvent,
+            CancellationToken cancellationToken
+        )
+        {
+            throw new InvalidOperationException("Simulated audit repository failure.");
         }
     }
 

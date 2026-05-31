@@ -12,7 +12,9 @@ services:
       GATEKEEPER_ADMIN_PASSWORD: ${GATEKEEPER_ADMIN_PASSWORD:-dev-admin-password-local-only}
       GATEKEEPER_ADMIN_COOKIE_SECURE: ${GATEKEEPER_ADMIN_COOKIE_SECURE:-false}
       GATEKEEPER_ADMIN_SESSION_IDLE_MINUTES: ${GATEKEEPER_ADMIN_SESSION_IDLE_MINUTES:-60}
-      GATEKEEPER_AGENT_TOKEN: ${GATEKEEPER_AGENT_TOKEN:-dev-agent-token-local-only}
+      AgentAuthentication__Enabled: ${GATEKEEPER_AGENT_AUTH_ENABLED:-true}
+      AgentAuthentication__ApiKeys__0__AgentId: ${GATEKEEPER_AGENT_AUTH_DEMO_AGENT_ID:-compose-demo-agent}
+      AgentAuthentication__ApiKeys__0__Key: ${GATEKEEPER_AGENT_AUTH_DEMO_KEY:-dev-compose-agent-key-local-only}
       GATEKEEPER_SQLITE_DATA_PATH: ${GATEKEEPER_SQLITE_DATA_PATH:-/data/gatekeeper.db}
     ports:
       - "5209:8080"

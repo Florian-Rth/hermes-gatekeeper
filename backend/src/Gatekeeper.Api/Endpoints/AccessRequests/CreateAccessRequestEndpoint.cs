@@ -10,21 +10,26 @@ namespace Gatekeeper.Api.Endpoints.AccessRequests;
 public sealed class CreateAccessRequestEndpoint
     : Endpoint<CreateAccessRequestRequest, CreateAccessRequestResponse>
 {
+    private const string RouteTemplate = "/api/v1/access-requests";
+
     private readonly IAccessRequestService _accessRequestService;
     private readonly AgentApiKeyGuard _agentApiKeyGuard;
+    private readonly AgentAuthAuditWriter _agentAuthAuditWriter;
 
     public CreateAccessRequestEndpoint(
         IAccessRequestService accessRequestService,
-        AgentApiKeyGuard agentApiKeyGuard
+        AgentApiKeyGuard agentApiKeyGuard,
+        AgentAuthAuditWriter agentAuthAuditWriter
     )
     {
         _accessRequestService = accessRequestService;
         _agentApiKeyGuard = agentApiKeyGuard;
+        _agentAuthAuditWriter = agentAuthAuditWriter;
     }
 
     public override void Configure()
     {
-        Post("/api/v1/access-requests");
+        Post(RouteTemplate);
         AllowAnonymous();
     }
 
@@ -80,6 +85,12 @@ public sealed class CreateAccessRequestEndpoint
         AgentAuthResult result = _agentApiKeyGuard.Authenticate(HttpContext);
         if (!result.Succeeded || result.Identity is null)
         {
+            await _agentAuthAuditWriter.WriteFailedAuthenticationAsync(
+                RouteTemplate,
+                HttpMethods.Post,
+                result.FailureReason ?? AgentAuthConstants.InvalidKeyReason,
+                ct
+            );
             await Send.StringAsync(
                 string.Empty,
                 StatusCodes.Status401Unauthorized,

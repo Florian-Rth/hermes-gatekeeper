@@ -1,20 +1,20 @@
 # Hermes Gatekeeper — Current Project Status
 
-Last updated: 2026-05-27
+Last updated: 2026-05-31
 Current branch: `main`
 Latest product/deploy commit: `7f99ff1 feat: add compose ssh demo target`
 
 ## Executive Summary
 
-Hermes Gatekeeper has a working backend MVP core through Phase 5, a session lifecycle/audit web UI through Phase 6, local admin cookie authentication through Phase 7, and the Phase 8 generic SSH read-only connector with a local Compose demo target:
+Hermes Gatekeeper has a working backend MVP core through Phase 5, a session lifecycle/audit web UI through Phase 6, local admin cookie authentication through Phase 7, the Phase 8 generic SSH read-only connector with a local Compose demo target, and Phase 9 Agent API Authentication for request creation and session action execution:
 
 ```text
-Access Request -> Admin Login -> Approve/Deny -> Session -> Execute typed dummy or SSH read-only action -> Lifecycle controls in UI -> Audit browsing UI
+Agent Authenticated Access Request -> Admin Login -> Approve/Deny -> Session -> Execute typed dummy or SSH read-only action -> Lifecycle controls in UI -> Audit browsing UI
 ```
 
 The backend is implemented with .NET 10, ASP.NET Core/FastEndpoints, EF Core, SQLite, migrations, and integration tests. The frontend has a browser dashboard for listing requests, reviewing details, logging in as local admin, approving/denying, viewing session lifecycle state, running allowed dummy actions, and browsing audit events. Docker Compose can start the backend, frontend, and a controlled low-privilege `demo-ssh` target for local SSH connector validation.
 
-Phase 8 added the generic SSH read-only connector. It keeps SSH credentials server-side, authorizes `target` + named `action` against approved capability profiles, executes only configured read-only commands with bounded output/timeouts, enriches audit metadata, and documents the full request -> approve -> execute -> audit flow in `docs/phase-8-compose-ssh-demo.md`. Future agents should treat the backend action loop, lifecycle controls, audit API, lifecycle/audit UI, local admin login/session flow, SSH read-only connector, and Compose SSH demo as implemented and validated. Do not re-plan or rebuild Phases 0-8 unless the repository state contradicts this document.
+Phase 8 added the generic SSH read-only connector. Phase 9 hardens the machine-facing boundary by requiring `X-Gatekeeper-Agent-Key` on `POST /api/v1/access-requests` and `POST /api/v1/sessions/{sessionId}/actions`, resolving a non-secret `agentId`, and adding bounded failed-auth audit events plus successful `agentId`/`authMethod` attribution. Future agents should treat the backend action loop, lifecycle controls, audit API, lifecycle/audit UI, local admin login/session flow, SSH read-only connector, Agent API Authentication, and Compose SSH demo as implemented. Do not re-plan or rebuild Phases 0-9 unless the repository state contradicts this document.
 
 ## Implemented and Committed
 
@@ -383,6 +383,26 @@ Security-relevant behavior:
 - Demo key material is local/demo-only and not suitable for real VMs or shared environments.
 - Real VM configuration should use deployment-specific low-privilege users, keys outside the repository, pinned known_hosts entries, and the same typed read-only action model.
 
+### Phase 9 — MVP Hardening and Agent API Authentication
+
+Working tree implementation based on Phase-9 slices A1-A6.
+
+Implemented:
+
+- Static server-configured Agent API Authentication using the `X-Gatekeeper-Agent-Key` header.
+- Protected machine-facing endpoints:
+  - `POST /api/v1/access-requests`
+  - `POST /api/v1/sessions/{sessionId}/actions`
+- Fixed-time API-key verification against configured `AgentAuthentication:ApiKeys` entries.
+- Non-secret authenticated agent attribution with:
+  - `agentId`
+  - `authMethod=apiKey`
+- Bounded failed-auth audit event:
+  - `AgentAuthenticationFailed`
+- Audit responses intentionally omit API keys, raw headers, cookies, request bodies, SSH credentials, and unbounded action output.
+- Local Compose/demo configuration updated so the Phase-8 SSH walkthrough still works with Agent Auth enabled by default for development.
+- Demo docs and curl examples updated to pass `X-Gatekeeper-Agent-Key` via an environment variable and to include 401 smoke checks.
+
 ## Current API Surface
 
 ### Health
@@ -397,7 +417,7 @@ Security-relevant behavior:
 - `POST /api/v1/access-requests/{id}/approve`
 - `POST /api/v1/access-requests/{id}/deny`
 
-Approval/deny requires an authenticated admin browser session. The UI obtains it via `POST /api/v1/admin/login` and the browser sends the HttpOnly admin cookie on same-origin requests.
+`POST /api/v1/access-requests` requires `X-Gatekeeper-Agent-Key`. Approval/deny requires an authenticated admin browser session. The UI obtains it via `POST /api/v1/admin/login` and the browser sends the HttpOnly admin cookie on same-origin requests.
 
 ### Admin Auth
 
@@ -414,12 +434,24 @@ GATEKEEPER_ADMIN_COOKIE_SECURE
 GATEKEEPER_ADMIN_SESSION_IDLE_MINUTES
 ```
 
+### Agent Auth
+
+Configured by:
+
+```text
+AgentAuthentication__Enabled
+AgentAuthentication__ApiKeys__0__AgentId
+AgentAuthentication__ApiKeys__0__Key
+```
+
 ### Sessions
 
 - `GET /api/v1/sessions/{id}`
 - `POST /api/v1/sessions/{sessionId}/actions`
 - `POST /api/v1/sessions/{id}/complete`
 - `POST /api/v1/sessions/{id}/revoke`
+
+`POST /api/v1/sessions/{sessionId}/actions` requires `X-Gatekeeper-Agent-Key`.
 
 Session action request shapes:
 
@@ -492,33 +524,25 @@ These are not bugs in the current phase; they are intentionally deferred scope:
 - No global session list endpoint/UI yet.
 - No SSH target/policy management UI; SSH targets/profiles/actions are server-side configuration.
 - No action history UI beyond the audit event API.
-- No agent authentication for request creation/action execution beyond current MVP boundaries.
 - No production/HomeLab integration yet; only the controlled local Compose SSH demo is configured.
 - No raw shell and no break-glass flow.
 - No OIDC, mTLS, TOTP, Passkeys, or multi-admin approval.
 
 ## Recommended Next Phase
 
-Recommended next phase: Phase 9 — MVP Hardening and Agent API Authentication.
+Recommended next phase: TBD after Phase 9 validation/commit.
 
-Detail plan: `docs/phase-9-mvp-hardening-agent-auth.md`.
+Most recent hardening plan: `docs/phase-9-mvp-hardening-agent-auth.md`.
 
 Reason:
 
-- The generic SSH read-only connector now proves the end goal in minimal form: a controlled agent request can result in a bounded, audited action against a real target class.
-- The largest remaining MVP security boundary is the agent side: `POST /api/v1/access-requests` and `POST /api/v1/sessions/{sessionId}/actions` should require configured Agent API keys before moving toward real HomeLab targets.
-- Admin Cookie Auth should remain separate from Agent API Auth.
-- Special-purpose connectors such as Home Assistant, Docker, Proxmox, and HTTP service adapters stay out of the MVP unless explicitly selected later.
+- Phase 9 closes the most important remaining MVP trust-boundary gap between browser-admin auth and machine-agent auth.
+- The next phase should be chosen explicitly based on deployment needs, for example stronger admin auth, connector onboarding, or operational hardening.
 
 Planned scope:
 
-- Add static server-configured Agent API keys for the MVP.
-- Protect request creation and session action execution with `X-Gatekeeper-Agent-Key`.
-- Fixed-time key verification.
-- Add non-secret agent identity (`agentId`, `authMethod`) to successful request/action audit events.
-- Add bounded failed-auth audit events without API keys, raw headers, cookies, bodies, SSH credentials, or action output.
-- Update Compose/demo docs so the Phase 8 SSH demo continues to work with Agent Auth.
-- Keep write actions, sudo, TTY, interactive commands, file upload/download, port forwarding, arbitrary command execution, and production/HomeLab target onboarding out of Phase 9.
+- Preserve the typed adapter and approval model.
+- Keep raw shell, sudo, write actions, file transfer, port forwarding, and direct productive-system onboarding out of scope unless explicitly selected.
 
 ## Important Agent Instructions
 
@@ -533,6 +557,7 @@ Future agents should:
    - Backend lifecycle/audit controls and their frontend UI are implemented.
    - Local admin login/cookie auth is implemented in Phase 7.
    - Generic SSH read-only connector and local Compose demo target are implemented in Phase 8.
+   - Agent API Authentication for request creation and session action execution is implemented in Phase 9.
 4. Keep all productive-system access behind typed adapters and explicit approvals.
 5. Do not add raw shell, sudo, write actions, or special HomeLab adapters until Florian explicitly chooses that phase.
 6. Keep using integration tests for full HTTP flows, especially security and audit behavior.

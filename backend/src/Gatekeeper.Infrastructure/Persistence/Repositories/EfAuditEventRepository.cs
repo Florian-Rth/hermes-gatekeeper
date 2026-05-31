@@ -34,6 +34,10 @@ public sealed class EfAuditEventRepository : IAuditEventRepository, IAuditEventQ
         "stderrTruncated",
         "output",
         "reasonCode",
+        "routeTemplate",
+        "httpMethod",
+        "agentId",
+        "authMethod",
     ];
 
     private readonly GatekeeperDbContext _dbContext;

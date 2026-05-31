@@ -68,6 +68,63 @@ public sealed class AuditEventEndpointTests
     }
 
     [Fact]
+    public async Task ListExposesBoundedFailedAgentAuthenticationAuditDetailsOnly()
+    {
+        await using AuditEventApiFactory factory = new();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        await factory.SeedAsync(
+            new AuditEventEntity
+            {
+                Id = Guid.NewGuid(),
+                EventType = "AgentAuthenticationFailed",
+                AggregateId = null,
+                OccurredAt = DateTimeOffset.Parse("2026-05-23T10:00:00Z"),
+                PayloadJson = JsonSerializer.Serialize(
+                    new
+                    {
+                        RouteTemplate = "/api/v1/access-requests",
+                        HttpMethod = "POST",
+                        ReasonCode = "invalid_key",
+                        AuthMethod = "apiKey",
+                        ApiKey = "super-secret",
+                        RawHeaders = "X-Gatekeeper-Agent-Key: super-secret",
+                        Cookies = "admin_session=secret",
+                        RequestBody = "{\"intent\":\"secret\"}",
+                    }
+                ),
+            },
+            TestContext.Current.CancellationToken
+        );
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        await LoginAsAdminAsync(client);
+
+        using HttpResponseMessage response = await client.GetAsync(
+            "/api/v1/audit-events?eventType=AgentAuthenticationFailed",
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument document = await ParseAsync(response);
+        JsonElement details = Assert
+            .Single(document.RootElement.GetProperty("items").EnumerateArray())
+            .GetProperty("details");
+        Assert.Equal("/api/v1/access-requests", details.GetProperty("routeTemplate").GetString());
+        Assert.Equal("POST", details.GetProperty("httpMethod").GetString());
+        Assert.Equal("invalid_key", details.GetProperty("reasonCode").GetString());
+        Assert.Equal("apiKey", details.GetProperty("authMethod").GetString());
+        string responseJson = document.RootElement.GetRawText();
+        Assert.DoesNotContain("super-secret", responseJson);
+        Assert.DoesNotContain("admin_session=secret", responseJson);
+        Assert.DoesNotContain("secret", responseJson);
+        Assert.False(details.TryGetProperty("apiKey", out _));
+        Assert.False(details.TryGetProperty("rawHeaders", out _));
+        Assert.False(details.TryGetProperty("cookies", out _));
+        Assert.False(details.TryGetProperty("requestBody", out _));
+    }
+
+    [Fact]
     public async Task ListWithLoginCookieReturnsBoundedEvents()
     {
         await using AuditEventApiFactory factory = new();
@@ -117,6 +174,53 @@ public sealed class AuditEventEndpointTests
         Assert.False(details.TryGetProperty("rawOutput", out _));
         Assert.False(item.TryGetProperty("payloadJson", out _));
         Assert.Equal(JsonValueKind.Null, document.RootElement.GetProperty("nextCursor").ValueKind);
+    }
+
+    [Fact]
+    public async Task ListExposesAgentIdForSuccessfulAuditResponsesWhenPresentInPayload()
+    {
+        await using AuditEventApiFactory factory = new();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        Guid aggregateId = Guid.NewGuid();
+        await factory.SeedAsync(
+            new AuditEventEntity
+            {
+                Id = Guid.NewGuid(),
+                EventType = "SessionActionExecuted",
+                AggregateId = aggregateId,
+                OccurredAt = DateTimeOffset.Parse("2026-05-23T10:00:00Z"),
+                PayloadJson = JsonSerializer.Serialize(
+                    new
+                    {
+                        SessionId = aggregateId,
+                        Action = "restart service",
+                        AgentId = "agent-blue",
+                        AuthMethod = "apiKey",
+                        RawOutput = "secret log dump",
+                    }
+                ),
+            },
+            TestContext.Current.CancellationToken
+        );
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        await LoginAsAdminAsync(client);
+
+        using HttpResponseMessage response = await client.GetAsync(
+            "/api/v1/audit-events?eventType=SessionActionExecuted",
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument document = await ParseAsync(response);
+        JsonElement details = Assert
+            .Single(document.RootElement.GetProperty("items").EnumerateArray())
+            .GetProperty("details");
+        Assert.Equal("restart service", details.GetProperty("action").GetString());
+        Assert.Equal("agent-blue", details.GetProperty("agentId").GetString());
+        Assert.Equal("apiKey", details.GetProperty("authMethod").GetString());
+        Assert.False(details.TryGetProperty("rawOutput", out _));
     }
 
     [Fact]

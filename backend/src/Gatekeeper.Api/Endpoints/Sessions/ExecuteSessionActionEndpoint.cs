@@ -10,21 +10,26 @@ namespace Gatekeeper.Api.Endpoints.Sessions;
 public sealed class ExecuteSessionActionEndpoint
     : Endpoint<ExecuteSessionActionRequest, ExecuteSessionActionResponse>
 {
+    private const string RouteTemplate = "/api/v1/sessions/{sessionId}/actions";
+
     private readonly ISessionActionService _sessionActions;
     private readonly AgentApiKeyGuard _agentApiKeyGuard;
+    private readonly AgentAuthAuditWriter _agentAuthAuditWriter;
 
     public ExecuteSessionActionEndpoint(
         ISessionActionService sessionActions,
-        AgentApiKeyGuard agentApiKeyGuard
+        AgentApiKeyGuard agentApiKeyGuard,
+        AgentAuthAuditWriter agentAuthAuditWriter
     )
     {
         _sessionActions = sessionActions;
         _agentApiKeyGuard = agentApiKeyGuard;
+        _agentAuthAuditWriter = agentAuthAuditWriter;
     }
 
     public override void Configure()
     {
-        Post("/api/v1/sessions/{sessionId}/actions");
+        Post(RouteTemplate);
         AllowAnonymous();
     }
 
@@ -115,6 +120,12 @@ public sealed class ExecuteSessionActionEndpoint
         AgentAuthResult result = _agentApiKeyGuard.Authenticate(HttpContext);
         if (!result.Succeeded || result.Identity is null)
         {
+            await _agentAuthAuditWriter.WriteFailedAuthenticationAsync(
+                RouteTemplate,
+                HttpMethods.Post,
+                result.FailureReason ?? AgentAuthConstants.InvalidKeyReason,
+                ct
+            );
             await Send.StringAsync(
                 string.Empty,
                 StatusCodes.Status401Unauthorized,

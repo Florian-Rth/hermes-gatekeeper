@@ -31,19 +31,19 @@ Der Kern soll generisch bleiben:
 
 ## Aktueller Status
 
-Der MVP-Kern ist bis einschließlich generischem SSH-read-only Connector mit reproduzierbarer lokaler Compose-Demo implementiert und validiert. Neben Dummy Actions kann Gatekeeper nach Approval typisierte, serverseitig konfigurierte read-only SSH-Actions gegen ein kontrolliertes Demo-Ziel ausführen.
+Der MVP-Kern ist bis einschließlich Agent API Authentication für Request-Erstellung und Session-Actions implementiert. Die reproduzierbare lokale Compose-Demo mit generischem SSH-read-only Connector funktioniert weiter mit Agent Auth, Admin Cookie Login und Audit Attribution.
 
 Aktuell funktioniert:
 
 ```text
-Access Request -> Admin Login -> Approve/Deny in Web UI -> Session -> Execute typed dummy or SSH read-only action -> Lifecycle controls -> Audit browsing
+Agent Authenticated Access Request -> Admin Login -> Approve/Deny in Web UI -> Session -> Execute typed dummy or SSH read-only action -> Lifecycle controls -> Audit browsing
 ```
 
 Implementiert sind:
 
 - `backend/`: .NET-10-Solution mit ASP.NET Core/FastEndpoints, EF Core, SQLite und Migrations
 - `frontend/`: React/Vite-App mit Admin-Login, Approval-Dashboard, Session Lifecycle Controls, Audit Feed und pnpm-Skripten für Check, Test und Build
-- Docker-Compose-Baseline für lokale Demo-/Dev-Starts inklusive kontrolliertem `demo-ssh` Target
+- Docker-Compose-Baseline für lokale Demo-/Dev-Starts inklusive kontrolliertem `demo-ssh` Target und demo-only Agent-Auth-Konfiguration
 - Access-Request-API:
   - `POST /api/v1/access-requests`
   - `GET /api/v1/access-requests/{id}`
@@ -60,9 +60,14 @@ Implementiert sind:
   - `POST /api/v1/sessions/{sessionId}/actions`
   - `POST /api/v1/sessions/{id}/complete`
   - `POST /api/v1/sessions/{id}/revoke`
+- Agent API Authentication für:
+  - `POST /api/v1/access-requests`
+  - `POST /api/v1/sessions/{sessionId}/actions`
+  - Header: `X-Gatekeeper-Agent-Key`
 - Dummy Action Adapter mit `test.echo`, `test.status.read` und `test.fail`
 - Generischer SSH-read-only Connector mit serverseitig konfiguriertem Demo-Target `demo-ssh`, Capability-Profil `remote.readonly.inspect` und Actions `system.status.read`, `disk.usage.read`, `service.status.read`
 - Audit API und Events für Request-Erstellung, Admin Login/Logout, Approval/Deny, Session-Erzeugung, Lifecycle-Übergänge und Action-Entscheidungen/Ausführung
+- Audit-Anreicherung für Agent Requests/Actions und bounded `AgentAuthenticationFailed` Events ohne API-Key-Leakage
 - Approval-Web-UI:
   - lokalen Admin Login via HttpOnly Cookie-Session
   - Requests listen und Details menschenlesbar anzeigen
@@ -131,7 +136,7 @@ Beispielwerte stehen in `.env.example`. Für lokale Anpassungen kann die Datei k
 cp .env.example .env
 ```
 
-Die Beispielwerte sind bewusst keine Secrets und nur für lokale Entwicklung gedacht. Für lokale HTTP-Compose-Demos setzt die Beispielkonfiguration `GATEKEEPER_ADMIN_COOKIE_SECURE=false`; produktionsähnliche Deployments sollen Secure-Cookies verwenden.
+Die Beispielwerte sind bewusst keine Secrets und nur für lokale Entwicklung gedacht. Für lokale HTTP-Compose-Demos setzt die Beispielkonfiguration `GATEKEEPER_ADMIN_COOKIE_SECURE=false`; produktionsähnliche Deployments sollen Secure-Cookies verwenden. Dasselbe gilt für die Demo-Agent-Auth-Werte `GATEKEEPER_AGENT_AUTH_DEMO_AGENT_ID` und `GATEKEEPER_AGENT_AUTH_DEMO_KEY`.
 
 Compose validieren, Images bauen und Services starten:
 
@@ -148,7 +153,7 @@ Ports der Compose-Baseline:
 - Frontend: `http://localhost:5173`
 - Demo SSH target: interner Compose-Service `demo-ssh` auf Port 22, nicht auf den Host veröffentlicht
 
-Die Compose-Demo konfiguriert den Backend-Connector für `demo-ssh` mit dem lokalen Capability-Profil `remote.readonly.inspect`. Der vollständige Request -> Approve -> Execute -> Audit Ablauf steht in `docs/phase-8-compose-ssh-demo.md`.
+Die Compose-Demo konfiguriert zusätzlich eine lokale Demo-Agent-Auth für `X-Gatekeeper-Agent-Key` und den Backend-Connector für `demo-ssh` mit dem lokalen Capability-Profil `remote.readonly.inspect`. Der vollständige Request -> Approve -> Execute -> Audit Ablauf inklusive 401-Smokes steht in `docs/phase-8-compose-ssh-demo.md`.
 
 ## Dokumente
 

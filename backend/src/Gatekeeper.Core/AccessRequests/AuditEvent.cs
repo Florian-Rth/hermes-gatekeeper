@@ -168,6 +168,14 @@ public sealed class AuditEvent
         return CreateSystem("AdminLogout", occurredAt, payloadJson);
     }
 
+    public static AuditEvent CreateAgentAuthenticationFailed(
+        DateTimeOffset occurredAt,
+        string payloadJson
+    )
+    {
+        return CreateSystem("AgentAuthenticationFailed", occurredAt, payloadJson);
+    }
+
     public static AuditEvent Load(
         Guid id,
         string eventType,

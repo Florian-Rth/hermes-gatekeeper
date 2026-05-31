@@ -40,6 +40,18 @@ Services:
 
 Default local admin login for the Compose demo is controlled by the existing environment defaults in `compose.yml`: username `admin`, password `dev-admin-password-local-only`. Override them with `GATEKEEPER_ADMIN_USERNAME` and `GATEKEEPER_ADMIN_PASSWORD` for local experiments.
 
+The Compose demo also enables Agent Auth with explicit demo-only values:
+
+- `GATEKEEPER_AGENT_AUTH_ENABLED=true`
+- `GATEKEEPER_AGENT_AUTH_DEMO_AGENT_ID=compose-demo-agent`
+- `GATEKEEPER_AGENT_AUTH_DEMO_KEY=dev-compose-agent-key-local-only`
+
+These values are intentionally local demo placeholders, not deployable secrets. For the shell examples below, export the demo key into a request variable:
+
+```bash
+export GATEKEEPER_AGENT_KEY="${GATEKEEPER_AGENT_KEY:-dev-compose-agent-key-local-only}"
+```
+
 ## Browser flow
 
 1. Open `http://localhost:5173`.
@@ -59,11 +71,22 @@ The current UI can display requests, sessions, action results, lifecycle state, 
 
 The following commands exercise the full request -> approve -> execute -> audit flow through the backend API. They assume the Compose defaults and run from the repository root while `docker compose up` is running.
 
-Create a request for the demo target/profile:
+In these examples, `requester` is caller-supplied request metadata. The authenticated actor used for audit attribution comes independently from the Agent API key and appears in successful audit details as `agentId` plus `authMethod=apiKey`.
+
+First, verify the protected agent endpoints fail closed without a key:
+
+```bash
+curl -i -sS http://localhost:5209/api/v1/access-requests \
+  -H 'Content-Type: application/json' \
+  -d '{"intent":"missing-key-smoke","requester":"compose-demo-agent","targets":["demo-ssh"],"requestedCapabilities":["remote.readonly.inspect"],"durationMinutes":15,"risk":"low","justification":"missing key smoke","proposedActions":["system.status.read"],"forbiddenActions":["raw shell"]}'
+```
+
+Create a request for the demo target/profile with the demo Agent key:
 
 ```bash
 REQUEST_ID=$(curl -sS http://localhost:5209/api/v1/access-requests \
   -H 'Content-Type: application/json' \
+  -H "X-Gatekeeper-Agent-Key: ${GATEKEEPER_AGENT_KEY}" \
   -d '{
     "intent":"Inspect the local demo SSH target",
     "requester":"compose-demo-agent",
@@ -100,8 +123,17 @@ SESSION_ID=$(curl -sS -b /tmp/gatekeeper-demo-cookies.txt \
 Execute a configured read-only SSH action:
 
 ```bash
+curl -i -sS "http://localhost:5209/api/v1/sessions/${SESSION_ID}/actions" \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"demo-ssh","action":"system.status.read","parameters":{}}'
+```
+
+The previous call should return `401 Unauthorized` without the header. Retry with the demo Agent key:
+
+```bash
 curl -sS "http://localhost:5209/api/v1/sessions/${SESSION_ID}/actions" \
   -H 'Content-Type: application/json' \
+  -H "X-Gatekeeper-Agent-Key: ${GATEKEEPER_AGENT_KEY}" \
   -d '{"target":"demo-ssh","action":"system.status.read","parameters":{}}' | jq
 ```
 
@@ -110,8 +142,18 @@ Execute the parameter-allowlisted service status action:
 ```bash
 curl -sS "http://localhost:5209/api/v1/sessions/${SESSION_ID}/actions" \
   -H 'Content-Type: application/json' \
+  -H "X-Gatekeeper-Agent-Key: ${GATEKEEPER_AGENT_KEY}" \
   -d '{"target":"demo-ssh","action":"service.status.read","parameters":{"service":"sshd"}}' | jq
 ```
+
+List failed-auth audit events and verify the response does not expose the API key:
+
+```bash
+curl -sS -b /tmp/gatekeeper-demo-cookies.txt \
+  "http://localhost:5209/api/v1/audit-events?eventType=AgentAuthenticationFailed&limit=50" | jq
+```
+
+Expected failed-auth details are bounded to fields such as route template, HTTP method, reason code, and `authMethod=apiKey`. The response must not contain the Agent key value.
 
 List request-level audit events:
 
@@ -120,7 +162,7 @@ curl -sS -b /tmp/gatekeeper-demo-cookies.txt \
   "http://localhost:5209/api/v1/audit-events?aggregateId=${REQUEST_ID}&limit=50" | jq
 ```
 
-Expected request-level audit event types include `AccessRequestCreated` and `AccessRequestApproved`.
+Expected request-level audit event types include `AccessRequestCreated` and `AccessRequestApproved`. Successful `AccessRequestCreated` details should include `agentId=compose-demo-agent` and `authMethod=apiKey`.
 
 List session/action audit events:
 
@@ -129,7 +171,7 @@ curl -sS -b /tmp/gatekeeper-demo-cookies.txt \
   "http://localhost:5209/api/v1/audit-events?aggregateId=${SESSION_ID}&limit=50" | jq
 ```
 
-Expected session/action audit event types include `SessionCreated`, `SessionActionRequested`, `SessionActionAllowed`, and `SessionActionExecuted`. SSH execution audit details include target alias, action name, safe parameter summary where applicable, exit status, duration, timeout/truncation flags, output size metadata, and reason code.
+Expected session/action audit event types include `SessionCreated`, `SessionActionRequested`, `SessionActionAllowed`, and `SessionActionExecuted`. Successful action events should include `agentId=compose-demo-agent` and `authMethod=apiKey`. SSH execution audit details include target alias, action name, safe parameter summary where applicable, exit status, duration, timeout/truncation flags, output size metadata, and reason code.
 
 ## Optional real-VM configuration notes
 

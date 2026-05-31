@@ -17,6 +17,7 @@ builder.Services.AddSingleton(adminAuthOptions);
 builder.Services.AddSingleton(agentAuthOptions);
 builder.Services.AddSingleton<AgentApiKeyVerifier>();
 builder.Services.AddScoped<AgentApiKeyGuard>();
+builder.Services.AddScoped<AgentAuthAuditWriter>();
 builder.Services.AddSingleton<AdminCredentialVerifier>();
 builder.Services.AddSingleton<AdminLoginRateLimiter>();
 builder.Services.AddScoped<AdminAuthAuditWriter>();
