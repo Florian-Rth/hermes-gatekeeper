@@ -1,3 +1,4 @@
+using Gatekeeper.Application.Common;
 using Gatekeeper.Core.AccessRequests;
 
 namespace Gatekeeper.Application.AccessRequests;
@@ -14,7 +15,8 @@ public sealed class CreateAccessRequestCommand
         string? justification,
         IReadOnlyList<string> proposedActions,
         IReadOnlyList<string> forbiddenActions,
-        IReadOnlyDictionary<string, string> metadata
+        IReadOnlyDictionary<string, string> metadata,
+        AuthenticatedAgent? agent = null
     )
     {
         Intent = intent;
@@ -27,6 +29,7 @@ public sealed class CreateAccessRequestCommand
         ProposedActions = proposedActions;
         ForbiddenActions = forbiddenActions;
         Metadata = metadata;
+        Agent = agent;
     }
 
     public string Intent { get; }
@@ -48,4 +51,6 @@ public sealed class CreateAccessRequestCommand
     public IReadOnlyList<string> ForbiddenActions { get; }
 
     public IReadOnlyDictionary<string, string> Metadata { get; }
+
+    public AuthenticatedAgent? Agent { get; }
 }

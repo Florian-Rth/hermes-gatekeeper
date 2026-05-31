@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Gatekeeper.Api.AgentAuthentication;
 using Gatekeeper.Application.Sessions;
 using Gatekeeper.Core.Sessions;
 using Gatekeeper.Infrastructure.Persistence;
@@ -15,6 +16,8 @@ namespace Gatekeeper.Tests;
 
 public sealed class AccessRequestEndpointTests
 {
+    private const string TestAgentKey = "test-agent-key";
+
     [Fact]
     public async Task PostCreatesRequestAndGetByIdReturnsRequestAndListContainsRequest()
     {
@@ -81,6 +84,73 @@ public sealed class AccessRequestEndpointTests
             TestContext.Current.CancellationToken
         );
         Assert.Equal(1, auditCount);
+    }
+
+    [Fact]
+    public async Task PostAccessRequestWithoutAgentKeyReturnsUnauthorizedBeforeValidation()
+    {
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        client.DefaultRequestHeaders.Remove(AgentAuthConstants.HeaderName);
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            "/api/v1/access-requests",
+            new
+            {
+                intent = "",
+                requester = "",
+                durationMinutes = 0,
+                risk = "Medium",
+            },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        await AssertAuditEventCountAsync(factory, 0);
+    }
+
+    [Fact]
+    public async Task PostAccessRequestWithInvalidAgentKeyReturnsUnauthorized()
+    {
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        client.DefaultRequestHeaders.Remove(AgentAuthConstants.HeaderName);
+        client.DefaultRequestHeaders.Add(AgentAuthConstants.HeaderName, "wrong-agent-key");
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            "/api/v1/access-requests",
+            CreateValidRequest(),
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        await AssertAuditEventCountAsync(factory, 0);
+    }
+
+    [Fact]
+    public async Task PostAccessRequestWithAdminCookieOnlyReturnsUnauthorized()
+    {
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        await LoginAsAdminAsync(client);
+        client.DefaultRequestHeaders.Remove(AgentAuthConstants.HeaderName);
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            "/api/v1/access-requests",
+            CreateValidRequest(),
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]
@@ -564,6 +634,41 @@ public sealed class AccessRequestEndpointTests
     }
 
     [Fact]
+    public async Task AgentKeyOnlyDoesNotAuthorizeAdminMutationEndpoints()
+    {
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        Guid accessRequestId = await CreateAccessRequestAsync(client);
+        Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
+        using HttpClient agentOnlyClient = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+
+        using HttpResponseMessage approveResponse = await agentOnlyClient.PostAsJsonAsync(
+            $"/api/v1/access-requests/{accessRequestId}/approve",
+            new { comment = "approved" },
+            TestContext.Current.CancellationToken
+        );
+        using HttpResponseMessage denyResponse = await agentOnlyClient.PostAsJsonAsync(
+            $"/api/v1/access-requests/{accessRequestId}/deny",
+            new { comment = "denied" },
+            TestContext.Current.CancellationToken
+        );
+        using HttpResponseMessage revokeResponse = await agentOnlyClient.PostAsync(
+            $"/api/v1/sessions/{sessionId}/revoke",
+            content: null,
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.Unauthorized, approveResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, denyResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, revokeResponse.StatusCode);
+    }
+
+    [Fact]
     public async Task CompleteSessionReturnsConflictForTerminalSession()
     {
         await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
@@ -719,6 +824,76 @@ public sealed class AccessRequestEndpointTests
         await AssertAuditEventExistsAsync(factory, sessionId, "SessionActionRequested");
         await AssertAuditEventExistsAsync(factory, sessionId, "SessionActionAllowed");
         await AssertAuditEventExistsAsync(factory, sessionId, "SessionActionExecuted");
+    }
+
+    [Fact]
+    public async Task PostSessionActionWithoutAgentKeyReturnsUnauthorized()
+    {
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        Guid accessRequestId = await CreateAccessRequestAsync(client, ["test.echo"]);
+        Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
+        client.DefaultRequestHeaders.Remove(AgentAuthConstants.HeaderName);
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/sessions/{sessionId}/actions",
+            new { capability = "test.echo", payload = new { message = "hello" } },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(0, await GetSessionActionCountAsync(factory, sessionId));
+        await AssertAuditEventDoesNotExistAsync(factory, sessionId, "SessionActionRequested");
+    }
+
+    [Fact]
+    public async Task PostSessionActionWithInvalidAgentKeyReturnsUnauthorized()
+    {
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        Guid accessRequestId = await CreateAccessRequestAsync(client, ["test.echo"]);
+        Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
+        client.DefaultRequestHeaders.Remove(AgentAuthConstants.HeaderName);
+        client.DefaultRequestHeaders.Add(AgentAuthConstants.HeaderName, "wrong-agent-key");
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/sessions/{sessionId}/actions",
+            new { capability = "test.echo", payload = new { message = "hello" } },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(0, await GetSessionActionCountAsync(factory, sessionId));
+        await AssertAuditEventDoesNotExistAsync(factory, sessionId, "SessionActionRequested");
+    }
+
+    [Fact]
+    public async Task PostSessionActionWithAdminCookieOnlyReturnsUnauthorized()
+    {
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        Guid accessRequestId = await CreateAccessRequestAsync(client, ["test.echo"]);
+        Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
+        client.DefaultRequestHeaders.Remove(AgentAuthConstants.HeaderName);
+        await LoginAsAdminAsync(client);
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/sessions/{sessionId}/actions",
+            new { capability = "test.echo", payload = new { message = "hello" } },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(0, await GetSessionActionCountAsync(factory, sessionId));
     }
 
     [Fact]
@@ -1555,6 +1730,20 @@ public sealed class AccessRequestEndpointTests
         );
     }
 
+    private static async Task AssertAuditEventCountAsync(
+        AccessRequestApiFactory factory,
+        int expectedCount
+    )
+    {
+        await using AsyncServiceScope scope = factory.Services.CreateAsyncScope();
+        GatekeeperDbContext dbContext =
+            scope.ServiceProvider.GetRequiredService<GatekeeperDbContext>();
+        int auditCount = await dbContext.AuditEvents.CountAsync(
+            TestContext.Current.CancellationToken
+        );
+        Assert.Equal(expectedCount, auditCount);
+    }
+
     private static async Task<JsonElement> GetSingleAuditPayloadAsync(
         AccessRequestApiFactory factory,
         Guid aggregateId,
@@ -1744,6 +1933,15 @@ public sealed class AccessRequestEndpointTests
             Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_USERNAME", "admin");
             Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_PASSWORD", "correct-password");
             Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_COOKIE_SECURE", "false");
+            Environment.SetEnvironmentVariable("AgentAuthentication__Enabled", "true");
+            Environment.SetEnvironmentVariable(
+                "AgentAuthentication__ApiKeys__0__AgentId",
+                "agent-1"
+            );
+            Environment.SetEnvironmentVariable(
+                "AgentAuthentication__ApiKeys__0__Key",
+                TestAgentKey
+            );
             Environment.SetEnvironmentVariable(
                 "GATEKEEPER_SESSION_MAX_ACTION_COUNT",
                 maxActionCount?.ToString()
@@ -1758,6 +1956,11 @@ public sealed class AccessRequestEndpointTests
             }
 
             builder.ConfigureServices(_configureServices);
+        }
+
+        protected override void ConfigureClient(HttpClient client)
+        {
+            client.DefaultRequestHeaders.Add(AgentAuthConstants.HeaderName, TestAgentKey);
         }
 
         public async Task MigrateAsync(CancellationToken cancellationToken)
@@ -1776,6 +1979,9 @@ public sealed class AccessRequestEndpointTests
             Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_USERNAME", null);
             Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_PASSWORD", null);
             Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_COOKIE_SECURE", null);
+            Environment.SetEnvironmentVariable("AgentAuthentication__Enabled", null);
+            Environment.SetEnvironmentVariable("AgentAuthentication__ApiKeys__0__AgentId", null);
+            Environment.SetEnvironmentVariable("AgentAuthentication__ApiKeys__0__Key", null);
             Environment.SetEnvironmentVariable("GATEKEEPER_SESSION_MAX_ACTION_COUNT", null);
             if (File.Exists(_databasePath))
             {

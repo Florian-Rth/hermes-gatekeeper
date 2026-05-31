@@ -1,6 +1,8 @@
 using FastEndpoints;
 using FluentValidation;
+using Gatekeeper.Api.AgentAuthentication;
 using Gatekeeper.Application.AccessRequests;
+using Gatekeeper.Application.Common;
 using Gatekeeper.Core.AccessRequests;
 
 namespace Gatekeeper.Api.Endpoints.AccessRequests;
@@ -9,10 +11,15 @@ public sealed class CreateAccessRequestEndpoint
     : Endpoint<CreateAccessRequestRequest, CreateAccessRequestResponse>
 {
     private readonly IAccessRequestService _accessRequestService;
+    private readonly AgentApiKeyGuard _agentApiKeyGuard;
 
-    public CreateAccessRequestEndpoint(IAccessRequestService accessRequestService)
+    public CreateAccessRequestEndpoint(
+        IAccessRequestService accessRequestService,
+        AgentApiKeyGuard agentApiKeyGuard
+    )
     {
         _accessRequestService = accessRequestService;
+        _agentApiKeyGuard = agentApiKeyGuard;
     }
 
     public override void Configure()
@@ -23,6 +30,12 @@ public sealed class CreateAccessRequestEndpoint
 
     public override async Task HandleAsync(CreateAccessRequestRequest req, CancellationToken ct)
     {
+        AgentIdentity? agentIdentity = await EnsureAgentAuthenticatedAsync(ct);
+        if (agentIdentity is null)
+        {
+            return;
+        }
+
         CreateAccessRequestCommand command = new CreateAccessRequestCommand(
             req.Intent,
             req.Requester,
@@ -33,7 +46,8 @@ public sealed class CreateAccessRequestEndpoint
             req.Justification,
             req.ProposedActions,
             req.ForbiddenActions,
-            req.Metadata
+            req.Metadata,
+            ToAuthenticatedAgent(agentIdentity)
         );
 
         AccessRequestDetails accessRequest = await _accessRequestService.CreateAsync(command, ct);
@@ -46,6 +60,40 @@ public sealed class CreateAccessRequestEndpoint
 
         HttpContext.Response.Headers.Location = $"/api/v1/access-requests/{accessRequest.Id}";
         await Send.ResponseAsync(response, StatusCodes.Status201Created, ct);
+    }
+
+    public override async Task OnBeforeValidateAsync(
+        CreateAccessRequestRequest req,
+        CancellationToken ct
+    )
+    {
+        await EnsureAgentAuthenticatedAsync(ct);
+    }
+
+    private async Task<AgentIdentity?> EnsureAgentAuthenticatedAsync(CancellationToken ct)
+    {
+        if (HttpContext.Response.HasStarted)
+        {
+            return null;
+        }
+
+        AgentAuthResult result = _agentApiKeyGuard.Authenticate(HttpContext);
+        if (!result.Succeeded || result.Identity is null)
+        {
+            await Send.StringAsync(
+                string.Empty,
+                StatusCodes.Status401Unauthorized,
+                cancellation: ct
+            );
+            return null;
+        }
+
+        return result.Identity;
+    }
+
+    private static AuthenticatedAgent ToAuthenticatedAgent(AgentIdentity identity)
+    {
+        return new AuthenticatedAgent(identity.AgentId, identity.AuthMethod);
     }
 }
 

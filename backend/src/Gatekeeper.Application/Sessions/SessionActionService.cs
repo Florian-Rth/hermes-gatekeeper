@@ -644,6 +644,8 @@ public sealed class SessionActionService : ISessionActionService
                 Output = sshDetails?.Output,
                 Reason = reason,
                 ReasonCode = reasonCode,
+                AgentId = command.Agent?.AgentId,
+                AuthMethod = command.Agent?.AuthMethod,
             };
         }
 
@@ -664,6 +666,8 @@ public sealed class SessionActionService : ISessionActionService
             Output = (SshOutputAuditMetadata?)null,
             Reason = reason,
             ReasonCode = reasonCode,
+            AgentId = command.Agent?.AgentId,
+            AuthMethod = command.Agent?.AuthMethod,
         };
     }
 

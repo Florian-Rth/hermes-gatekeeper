@@ -59,7 +59,7 @@ public sealed class AccessRequestService : IAccessRequestService
         var auditEvent = AuditEvent.CreateAccessRequestCreated(
             accessRequest.Id,
             now,
-            JsonSerializer.Serialize(ToDetails(accessRequest))
+            JsonSerializer.Serialize(ToAuditPayload(ToDetails(accessRequest), null, command.Agent))
         );
         await _auditEvents.AddAsync(auditEvent, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -235,9 +235,19 @@ public sealed class AccessRequestService : IAccessRequestService
         );
     }
 
-    private static object ToAuditPayload(object details, string? comment)
+    private static object ToAuditPayload(
+        object details,
+        string? comment,
+        AuthenticatedAgent? agent = null
+    )
     {
-        return new { Details = details, Comment = comment };
+        return new
+        {
+            Details = details,
+            Comment = comment,
+            AgentId = agent?.AgentId,
+            AuthMethod = agent?.AuthMethod,
+        };
     }
 
     private static AccessRequestSummary ToSummary(AccessRequest accessRequest)

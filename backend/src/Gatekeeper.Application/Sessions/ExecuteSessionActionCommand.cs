@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Gatekeeper.Application.Common;
 
 namespace Gatekeeper.Application.Sessions;
 
@@ -10,7 +11,8 @@ public sealed class ExecuteSessionActionCommand
         string? action,
         JsonElement? parameters,
         string? capability = null,
-        JsonElement? payload = null
+        JsonElement? payload = null,
+        AuthenticatedAgent? agent = null
     )
     {
         SessionId = sessionId;
@@ -19,6 +21,7 @@ public sealed class ExecuteSessionActionCommand
         Parameters = parameters;
         Capability = capability ?? string.Empty;
         Payload = payload;
+        Agent = agent;
     }
 
     public ExecuteSessionActionCommand(Guid sessionId, string capability, JsonElement? payload)
@@ -35,6 +38,8 @@ public sealed class ExecuteSessionActionCommand
     public string Capability { get; }
 
     public JsonElement? Payload { get; }
+
+    public AuthenticatedAgent? Agent { get; }
 
     public bool IsSshAction =>
         !string.IsNullOrWhiteSpace(Target) || !string.IsNullOrWhiteSpace(Action);

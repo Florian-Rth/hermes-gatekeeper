@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Gatekeeper.Api.AgentAuthentication;
 using Gatekeeper.Infrastructure.Persistence;
 using Gatekeeper.Infrastructure.Persistence.Entities;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -11,6 +12,8 @@ namespace Gatekeeper.Tests;
 
 public sealed class AuditEventEndpointTests
 {
+    private const string TestAgentKey = "test-agent-key";
+
     [Fact]
     public async Task ListWithoutTokenReturnsUnauthorized()
     {
@@ -37,6 +40,24 @@ public sealed class AuditEventEndpointTests
             new WebApplicationFactoryClientOptions { HandleCookies = true }
         );
         client.DefaultRequestHeaders.Add("X-Gatekeeper-Admin-Token", "test-admin-token");
+
+        using HttpResponseMessage response = await client.GetAsync(
+            "/api/v1/audit-events",
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ListWithAgentKeyOnlyReturnsUnauthorized()
+    {
+        await using AuditEventApiFactory factory = new();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        client.DefaultRequestHeaders.Add(AgentAuthConstants.HeaderName, TestAgentKey);
 
         using HttpResponseMessage response = await client.GetAsync(
             "/api/v1/audit-events",
@@ -474,6 +495,15 @@ public sealed class AuditEventEndpointTests
             Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_USERNAME", "admin");
             Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_PASSWORD", "correct-password");
             Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_COOKIE_SECURE", "false");
+            Environment.SetEnvironmentVariable("AgentAuthentication__Enabled", "true");
+            Environment.SetEnvironmentVariable(
+                "AgentAuthentication__ApiKeys__0__AgentId",
+                "agent-1"
+            );
+            Environment.SetEnvironmentVariable(
+                "AgentAuthentication__ApiKeys__0__Key",
+                TestAgentKey
+            );
         }
 
         public async Task MigrateAsync(CancellationToken cancellationToken)
@@ -523,6 +553,9 @@ public sealed class AuditEventEndpointTests
             Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_USERNAME", null);
             Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_PASSWORD", null);
             Environment.SetEnvironmentVariable("GATEKEEPER_ADMIN_COOKIE_SECURE", null);
+            Environment.SetEnvironmentVariable("AgentAuthentication__Enabled", null);
+            Environment.SetEnvironmentVariable("AgentAuthentication__ApiKeys__0__AgentId", null);
+            Environment.SetEnvironmentVariable("AgentAuthentication__ApiKeys__0__Key", null);
             if (File.Exists(_databasePath))
             {
                 File.Delete(_databasePath);
