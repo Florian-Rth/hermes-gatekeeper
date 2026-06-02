@@ -39,6 +39,19 @@ Aktuell funktioniert:
 Agent Authenticated Access Request -> Admin Login -> Approve/Deny in Web UI -> Session -> Execute typed dummy or SSH read-only action -> Lifecycle controls -> Audit browsing
 ```
 
+Kurz dokumentierte aktuell unterstützte Actions:
+
+- Dummy:
+  - `test.echo`
+  - `test.status.read`
+  - `test.fail`
+- SSH read-only im Compose-/Dev-Setup (`demo-ssh`, Profil `remote.readonly.inspect`):
+  - `system.status.read`
+  - `disk.usage.read`
+  - `service.status.read` mit allowlistetem Parameter `service=sshd`
+
+Als nächste konkrete Produktphase ist jetzt ein erstes Safe-Write-Set geplant. Ziel ist nicht weiteres allgemeines Hardening, sondern kontrollierte echte Maintenance-Actions über denselben Approval-/Session-/Audit-Flow. Der Detailplan liegt in `docs/phase-12-safe-write-actions.md`.
+
 Implementiert sind:
 
 - `backend/`: .NET-10-Solution mit ASP.NET Core/FastEndpoints, EF Core, SQLite und Migrations
@@ -75,7 +88,7 @@ Implementiert sind:
   - Session Summary, Action Budget, Revoke/Complete und optionale Dummy Action anzeigen
   - Audit Events mit Filtern browsen
 
-Noch nicht implementiert sind globale Session-Operations-UI, OIDC/TOTP/Passkeys/mTLS und Multi-Admin Approval. Spezielle Connectoren wie Home Assistant, Docker und Proxmox bleiben Post-MVP.
+Noch nicht implementiert sind globale Session-Operations-UI, OIDC/TOTP/Passkeys/mTLS und Multi-Admin Approval. Der erste kontrollierte Safe-Write-Slice `service.restart` ist für den lokalen Compose-Demo-Target in Arbeit; weitere Write-Actions wie `service.reload`, `backup.trigger` oder `container.restart` bleiben noch aus. Spezielle Connectoren wie Home Assistant, Docker und Proxmox bleiben Post-MVP.
 
 Der detaillierte Projektstand für zukünftige Agents steht in `docs/current-status.md`.
 

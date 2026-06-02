@@ -135,7 +135,7 @@ public sealed class EfSqlitePersistenceTests
             "Investigate production incident",
             "agent-1",
             ["prod-api"],
-            ["read_logs"],
+            ["ssh.read"],
             30,
             RiskLevel.Medium,
             "Need diagnosis",
@@ -193,7 +193,10 @@ public sealed class EfSqlitePersistenceTests
         Assert.Equal(request.Id, persistedSession.AccessRequestId);
         Assert.Equal(SessionStatus.Active, persistedSession.Status);
         Assert.Equal(["prod-api"], persistedSession.AllowedTargets);
-        Assert.Equal(["read_logs"], persistedSession.AllowedCapabilities);
+        Assert.Equal(["ssh.read"], persistedSession.AllowedCapabilities);
+        SshProfileGrant persistedGrant = Assert.Single(persistedSession.SshProfileGrants);
+        Assert.Equal("prod-api", persistedGrant.TargetAlias);
+        Assert.Equal("ssh.read", persistedGrant.ProfileName);
         Assert.Equal(0, persistedSession.ActionCount);
         Assert.Equal(10, persistedSession.MaxActionCount);
         Assert.Equal(2, auditCount);
@@ -215,7 +218,7 @@ public sealed class EfSqlitePersistenceTests
             "Investigate production incident",
             "agent-1",
             ["prod-api"],
-            ["read_logs"],
+            ["ssh.read"],
             30,
             RiskLevel.Medium,
             "Need diagnosis",
@@ -297,7 +300,7 @@ public sealed class EfSqlitePersistenceTests
             "Investigate production incident",
             "agent-1",
             ["prod-api"],
-            ["read_logs"],
+            ["ssh.read"],
             30,
             RiskLevel.Medium,
             "Need diagnosis",
@@ -332,7 +335,10 @@ public sealed class EfSqlitePersistenceTests
         Assert.Equal(request.Id, found.AccessRequestId);
         Assert.Equal(SessionStatus.Active, found.Status);
         Assert.Equal(["prod-api"], found.AllowedTargets);
-        Assert.Equal(["read_logs"], found.AllowedCapabilities);
+        Assert.Equal(["ssh.read"], found.AllowedCapabilities);
+        SshProfileGrant foundGrant = Assert.Single(found.SshProfileGrants);
+        Assert.Equal("prod-api", foundGrant.TargetAlias);
+        Assert.Equal("ssh.read", foundGrant.ProfileName);
         Assert.Equal(createdAt, found.CreatedAt);
         Assert.Equal(createdAt.AddMinutes(30), found.ExpiresAt);
         Assert.Equal(0, found.ActionCount);

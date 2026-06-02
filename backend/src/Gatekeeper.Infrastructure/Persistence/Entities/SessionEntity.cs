@@ -14,6 +14,8 @@ public sealed class SessionEntity
 
     public string AllowedCapabilitiesJson { get; set; } = "[]";
 
+    public string SshProfileGrantsJson { get; set; } = "[]";
+
     public DateTimeOffset CreatedAt { get; set; }
 
     public DateTimeOffset ExpiresAt { get; set; }

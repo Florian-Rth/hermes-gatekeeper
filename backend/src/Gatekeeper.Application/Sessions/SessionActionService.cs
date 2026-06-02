@@ -146,9 +146,9 @@ public sealed class SessionActionService : ISessionActionService
         }
 
         IReadOnlyCollection<SshApprovedProfileGrant> grants = session
-            .AllowedCapabilities.Select(profile => new SshApprovedProfileGrant(
-                command.Target,
-                profile
+            .SshProfileGrants.Select(grant => new SshApprovedProfileGrant(
+                grant.TargetAlias,
+                grant.ProfileName
             ))
             .ToArray();
         SshActionPolicyResult policyResult = _sshActionPolicy.Resolve(
@@ -268,7 +268,9 @@ public sealed class SessionActionService : ISessionActionService
                 session.Id,
                 command.Action,
                 "succeeded",
-                JsonSerializer.SerializeToElement(ToSshResult(executionResult.Output!))
+                JsonSerializer.SerializeToElement(
+                    ToSshResult(policyResult.ResolvedAction!, executionResult.Output!)
+                )
             )
         );
     }
@@ -584,7 +586,9 @@ public sealed class SessionActionService : ISessionActionService
             false,
             false,
             null,
-            null
+            null,
+            resolvedAction.IsMutating,
+            resolvedAction.Risk.ToString()
         );
     }
 
@@ -603,11 +607,13 @@ public sealed class SessionActionService : ISessionActionService
             output?.StdoutTruncated ?? false,
             output?.StderrTruncated ?? false,
             output is null ? null : Encoding.UTF8.GetByteCount(output.Stdout),
-            output is null ? null : Encoding.UTF8.GetByteCount(output.Stderr)
+            output is null ? null : Encoding.UTF8.GetByteCount(output.Stderr),
+            resolvedAction?.IsMutating,
+            resolvedAction?.Risk.ToString()
         );
     }
 
-    private static object ToSshResult(SshCommandOutput output)
+    private static object ToSshResult(SshResolvedAction resolvedAction, SshCommandOutput output)
     {
         return new
         {
@@ -616,6 +622,8 @@ public sealed class SessionActionService : ISessionActionService
             stderr = output.Stderr,
             stdoutTruncated = output.StdoutTruncated,
             stderrTruncated = output.StderrTruncated,
+            isMutating = resolvedAction.IsMutating,
+            risk = resolvedAction.Risk.ToString(),
         };
     }
 
@@ -635,6 +643,8 @@ public sealed class SessionActionService : ISessionActionService
                 session.AccessRequestId,
                 TargetAlias = command.Target,
                 Action = command.Action,
+                IsMutating = sshDetails?.IsMutating,
+                Risk = sshDetails?.Risk,
                 SafeParameters = sshDetails?.SafeParameters,
                 ExitStatus = sshDetails?.ExitStatus,
                 DurationMs = sshDetails?.DurationMilliseconds,
@@ -657,6 +667,8 @@ public sealed class SessionActionService : ISessionActionService
             Target = (string?)null,
             TargetAlias = (string?)null,
             Action = (string?)null,
+            IsMutating = (bool?)null,
+            Risk = (string?)null,
             SafeParameters = (IReadOnlyDictionary<string, string>?)null,
             ExitStatus = (int?)null,
             DurationMs = (long?)null,
@@ -681,7 +693,9 @@ public sealed class SessionActionService : ISessionActionService
             bool stdoutTruncated,
             bool stderrTruncated,
             int? stdoutBytes,
-            int? stderrBytes
+            int? stderrBytes,
+            bool? isMutating,
+            string? risk
         )
         {
             SafeParameters = safeParameters is null
@@ -696,6 +710,8 @@ public sealed class SessionActionService : ISessionActionService
                 stdoutBytes.HasValue || stderrBytes.HasValue
                     ? new SshOutputAuditMetadata(stdoutBytes, stderrBytes)
                     : null;
+            IsMutating = isMutating;
+            Risk = risk;
         }
 
         public IReadOnlyDictionary<string, string>? SafeParameters { get; }
@@ -711,6 +727,10 @@ public sealed class SessionActionService : ISessionActionService
         public bool StderrTruncated { get; }
 
         public SshOutputAuditMetadata? Output { get; }
+
+        public bool? IsMutating { get; }
+
+        public string? Risk { get; }
     }
 
     private sealed class SshOutputAuditMetadata

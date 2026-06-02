@@ -62,6 +62,7 @@ public sealed class GatekeeperDbContext : DbContext
             entity.Property(session => session.Status).IsRequired().IsConcurrencyToken();
             entity.Property(session => session.AllowedTargetsJson).IsRequired();
             entity.Property(session => session.AllowedCapabilitiesJson).IsRequired();
+            entity.Property(session => session.SshProfileGrantsJson).IsRequired();
             entity.Property(session => session.CreatedAt).IsRequired();
             entity.Property(session => session.ExpiresAt).IsRequired();
             entity.Property(session => session.ActionCount).IsRequired();

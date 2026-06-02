@@ -117,6 +117,8 @@ public sealed partial class GatekeeperDbContextModelSnapshot : ModelSnapshot
 
                 entity.Property<string>("AllowedTargetsJson").IsRequired().HasColumnType("TEXT");
 
+                entity.Property<string>("SshProfileGrantsJson").IsRequired().HasColumnType("TEXT");
+
                 entity.Property<int>("ActionCount").HasColumnType("INTEGER");
 
                 entity.Property<DateTimeOffset?>("CompletedAt").HasColumnType("TEXT");

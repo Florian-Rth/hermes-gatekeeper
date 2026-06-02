@@ -111,7 +111,7 @@ Er legt fest:
 
 ### Commit Boundary
 
-Phase 7 ist in getrennten Backend-/Frontend-Slices umgesetzt und committed. Phase 8 wurde danach als generischer SSH-read-only Connector umgesetzt. Nächste Arbeit ist Phase 9: MVP Hardening und Agent API Authentication.
+Phase 7 ist in getrennten Backend-/Frontend-Slices umgesetzt und committed. Phase 8 wurde danach als generischer SSH-read-only Connector umgesetzt. Phase 9 Agent API Authentication ist inzwischen ebenfalls umgesetzt. Als nächste konkrete Produktphase wurde bewusst Phase 12 Safe Write Actions nach vorne gezogen; die ursprünglich davor geplanten read-only Adapter-Phasen werden nicht gelöscht, sondern nach diesem Produktentscheid dokumentiert zurückgestellt.
 
 ---
 
@@ -173,11 +173,11 @@ Phase 8 ist abgeschlossen: Der SSH-read-only Connector, die SSH Audit-Anreicheru
 
 ---
 
-## Nächste konkrete Phase — Phase 9: MVP Hardening und Agent API Authentication
+## Zuletzt abgeschlossene konkrete Phase — Phase 9: MVP Hardening und Agent API Authentication
 
 ### Ziel
 
-Der MVP soll nicht nur Admin-Entscheidungen schützen, sondern auch die Agent-Seite schließen: Nur konfigurierte Agenten dürfen Access Requests erstellen und Aktionen innerhalb genehmigter Sessions ausführen.
+Der MVP sollte nicht nur Admin-Entscheidungen schützen, sondern auch die Agent-Seite schließen: Nur konfigurierte Agenten dürfen Access Requests erstellen und Aktionen innerhalb genehmigter Sessions ausführen.
 
 ### Ergebnis am Ende der Phase
 
@@ -221,7 +221,71 @@ Der konkrete Phasenplan liegt in `docs/phase-9-mvp-hardening-agent-auth.md`.
 
 ### Commit Boundary
 
-Phase 9 endet erst, wenn Agent API Authentication implementiert, getestet, reviewed, dokumentiert, committed und gepusht ist.
+Phase 9 ist abgeschlossen; Agent API Authentication ist implementiert, getestet, reviewed, dokumentiert, committed und gepusht.
+
+---
+
+## Nächste konkrete Phase — Phase 12: Safe Write Actions
+
+### Ziel
+
+Nach dem funktionierenden read-only Produktkern folgt die erste bewusst mutierende Produktphase: Gatekeeper soll ein kleines, streng allowlistetes Set an echten Maintenance-Actions über denselben Approval-/Session-/Audit-Flow ausführen können.
+
+### Warum Phase 12 bewusst vorgezogen wird
+
+- Florian priorisiert echte Nutzfunktion vor weiterer allgemeiner Hardening-Arbeit.
+- Das bestehende SSH-/Session-/Audit-Modell trägt ein kleines typed Write-Set natürlich mit.
+- Die ursprünglich vorher geplanten Phasen 10 und 11 (HTTP read-only, Docker read-only) bleiben im strategischen Plan, werden aber für diese Produktentscheidung explizit zurückgestellt statt stillschweigend verworfen.
+
+### Ergebnis am Ende der Phase
+
+- Gatekeeper unterstützt erste kontrollierte mutierende Actions als serverseitig konfigurierte named actions.
+- Write-Actions laufen nur über ein separates Maintenance-Profil, nicht über das bestehende read-only Profil.
+- Approval, Session, Agent Auth, Audit und Budgeting bleiben zentrale Durchsetzungspunkte.
+- Action-Responses und Audit-Einträge unterscheiden mutierende Ergebnisse klar von read-only Ergebnissen.
+
+### Geplantes erstes Action-Set
+
+- `service.restart`
+- `service.reload`
+- `backup.trigger`
+- `container.restart`
+  - nur auf Targets, die diese Action explizit serverseitig konfigurieren und erlauben
+
+### Scope
+
+- Backend-first.
+- Weiterhin typed actions über den bestehenden Session-Action-Endpoint; keine neue Raw-Shell- oder Generic-Write-API.
+- Neues separates Profil, z. B. `remote.maintenance.basic`, für mutierende Aktionen.
+- Explizite Write-/Risk-Metadaten im serverseitigen Action-Modell.
+- Kurze Produktdoku der aktuell unterstützten Actions in README und `docs/current-status.md`.
+
+### Nicht-Ziele
+
+- Keine freie Shell.
+- Kein sudo.
+- Keine generischen Datei-Write-/Patch-Aktionen.
+- Keine Dateiübertragung.
+- Kein Port Forwarding.
+- Keine produktive Target-Onboarding-Automation.
+- Kein stilles Hochziehen aller denkbaren Write-Aktionen; zuerst nur ein kleines Maintenance-Set.
+
+### Validierung
+
+- TDD pro Backend-Slice.
+- Integrationstests für genehmigte vs. nicht genehmigte Write-Actions.
+- Tests für getrennte Profile: read-only Profil darf Write-Actions nicht ausführen.
+- Audit-Tests für mutierende Action-Metadaten ohne Secret-Leakage.
+- Compose-/Demo-Smoke für mindestens eine echte Write-Action plus anschließende Verifikation.
+- Backend Gates via Docker SDK fallback: restore/build/test, CSharpier check auf `src tests`.
+
+### Detailplan
+
+Der konkrete Phasenplan liegt in `docs/phase-12-safe-write-actions.md`.
+
+### Commit Boundary
+
+Phase 12 endet erst, wenn das erste Safe-Write-Set implementiert, getestet, reviewed, dokumentiert, committed und gepusht ist.
 
 ---
 
@@ -909,14 +973,14 @@ Gatekeeper ist besser nachvollziehbar, exportierbar und manipulationsresistenter
 
 ## Empfohlene erste Umsetzungsschritte
 
-Für die konkrete Implementierung gehören Phase 0 bis Phase 8 zum MVP. Phase 8 ist jetzt der generische SSH-read-only Connector. Erst danach ist der MVP inhaltlich vollständig genug für Hardening/Release Candidate.
+Für die konkrete Implementierung gehören Phase 0 bis Phase 9 zum aktuellen funktionsfähigen Produktkern. Nach Florians Produktentscheidung wird jetzt nicht zuerst ein weiterer allgemeiner Hardening-/Read-only-Ausbau verfolgt, sondern bewusst die erste mutierende Produktphase.
 
-Danach ist die nächste sinnvolle Reihenfolge:
+Nächste sinnvolle Reihenfolge ab jetzt:
 
-1. Phase 9 — MVP Hardening und Release-Kandidat
-2. Phase 10 — HTTP read-only Adapter
-3. Phase 11 — Docker read-only Adapter
-4. Phase 12 — Safe Write Actions
+1. Phase 12 — Safe Write Actions
+2. Phase 9.x / RC-Hardening für längeren Betrieb
+3. Phase 10 — HTTP read-only Adapter
+4. Phase 11 — Docker read-only Adapter
 5. Phase 13 — Home Assistant Adapter
 
 ## MVP Definition of Done

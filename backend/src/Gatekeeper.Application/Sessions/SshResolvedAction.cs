@@ -1,3 +1,5 @@
+using Gatekeeper.Core.AccessRequests;
+
 namespace Gatekeeper.Application.Sessions;
 
 public sealed class SshResolvedAction
@@ -8,7 +10,9 @@ public sealed class SshResolvedAction
         IReadOnlyList<string> command,
         IReadOnlyDictionary<string, string> safeParameters,
         TimeSpan timeout,
-        int outputLimitBytes
+        int outputLimitBytes,
+        bool isMutating,
+        RiskLevel risk
     )
     {
         TargetAlias = targetAlias;
@@ -17,6 +21,8 @@ public sealed class SshResolvedAction
         SafeParameters = new Dictionary<string, string>(safeParameters, StringComparer.Ordinal);
         Timeout = timeout;
         OutputLimitBytes = outputLimitBytes;
+        IsMutating = isMutating;
+        Risk = risk;
     }
 
     public string TargetAlias { get; }
@@ -30,4 +36,8 @@ public sealed class SshResolvedAction
     public TimeSpan Timeout { get; }
 
     public int OutputLimitBytes { get; }
+
+    public bool IsMutating { get; }
+
+    public RiskLevel Risk { get; }
 }

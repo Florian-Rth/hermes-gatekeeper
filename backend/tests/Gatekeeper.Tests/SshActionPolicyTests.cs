@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
 using Gatekeeper.Application.Sessions;
+using Gatekeeper.Core.AccessRequests;
 using Gatekeeper.Infrastructure;
 using Gatekeeper.Infrastructure.SessionActions.Ssh;
 using Microsoft.Extensions.Configuration;
@@ -26,6 +27,9 @@ public sealed class SshActionPolicyTests
                     ["SshConnector:Targets:demo-ssh:Actions:system.status.read:Command:0"] =
                         "uname",
                     ["SshConnector:Targets:demo-ssh:Actions:system.status.read:Command:1"] = "-a",
+                    ["SshConnector:Targets:demo-ssh:Actions:system.status.read:IsMutating"] =
+                        "false",
+                    ["SshConnector:Targets:demo-ssh:Actions:system.status.read:Risk"] = "Low",
                 }
             )
             .Build();
@@ -46,6 +50,8 @@ public sealed class SshActionPolicyTests
             new[] { "uname", "-a" },
             options.Targets["demo-ssh"].Actions["system.status.read"].Command
         );
+        Assert.False(options.Targets["demo-ssh"].Actions["system.status.read"].IsMutating);
+        Assert.Equal(RiskLevel.Low, options.Targets["demo-ssh"].Actions["system.status.read"].Risk);
         Assert.IsType<ConfiguredSshActionPolicy>(provider.GetRequiredService<ISshActionPolicy>());
     }
 
@@ -58,7 +64,7 @@ public sealed class SshActionPolicyTests
             "demo-ssh",
             "service.status.read",
             Grants(("demo-ssh", "remote.readonly.inspect")),
-            JsonSerializer.SerializeToElement(new { service = "ssh" })
+            JsonSerializer.SerializeToElement(new { service = "sshd" })
         );
 
         Assert.True(result.Succeeded);
@@ -66,10 +72,12 @@ public sealed class SshActionPolicyTests
         Assert.NotNull(result.ResolvedAction);
         Assert.Equal("demo-ssh", result.ResolvedAction.TargetAlias);
         Assert.Equal("service.status.read", result.ResolvedAction.ActionName);
-        Assert.Equal(new[] { "systemctl", "is-active", "ssh" }, result.ResolvedAction.Command);
-        Assert.Equal("ssh", result.ResolvedAction.SafeParameters["service"]);
+        Assert.Equal(new[] { "systemctl", "is-active", "sshd" }, result.ResolvedAction.Command);
+        Assert.Equal("sshd", result.ResolvedAction.SafeParameters["service"]);
         Assert.Equal(TimeSpan.FromSeconds(7), result.ResolvedAction.Timeout);
         Assert.Equal(4096, result.ResolvedAction.OutputLimitBytes);
+        Assert.False(result.ResolvedAction.IsMutating);
+        Assert.Equal(RiskLevel.Low, result.ResolvedAction.Risk);
     }
 
     [Fact]
@@ -163,6 +171,57 @@ public sealed class SshActionPolicyTests
     }
 
     [Fact]
+    public void Resolve_Should_NotAuthorizeMutatingAction_ForReadonlyProfile()
+    {
+        ConfiguredSshActionPolicy policy = CreatePolicy();
+
+        SshActionPolicyResult result = policy.Resolve(
+            "demo-ssh",
+            "service.restart",
+            Grants(("demo-ssh", "remote.readonly.inspect")),
+            JsonSerializer.SerializeToElement(new { service = "demo-app" })
+        );
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(SshActionPolicyFailureReason.MissingProfileMembership, result.FailureReason);
+        Assert.Null(result.ResolvedAction);
+        Assert.NotNull(result.Error);
+    }
+
+    [Fact]
+    public void Resolve_Should_AuthorizeOnlyConfiguredMutatingActions_ForMaintenanceProfile()
+    {
+        ConfiguredSshActionPolicy policy = CreatePolicy();
+
+        SshActionPolicyResult allowedResult = policy.Resolve(
+            "demo-ssh",
+            "service.restart",
+            Grants(("demo-ssh", "remote.maintenance.basic")),
+            JsonSerializer.SerializeToElement(new { service = "demo-app" })
+        );
+
+        Assert.True(allowedResult.Succeeded);
+        Assert.NotNull(allowedResult.ResolvedAction);
+        Assert.True(allowedResult.ResolvedAction.IsMutating);
+        Assert.Equal(RiskLevel.High, allowedResult.ResolvedAction.Risk);
+
+        SshActionPolicyResult deniedResult = policy.Resolve(
+            "demo-ssh",
+            "disk.usage.read",
+            Grants(("demo-ssh", "remote.maintenance.basic")),
+            null
+        );
+
+        Assert.False(deniedResult.Succeeded);
+        Assert.Equal(
+            SshActionPolicyFailureReason.MissingProfileMembership,
+            deniedResult.FailureReason
+        );
+        Assert.Null(deniedResult.ResolvedAction);
+        Assert.NotNull(deniedResult.Error);
+    }
+
+    [Fact]
     public void Resolve_Should_FailWithTypedFailure_When_ParameterIsDuplicated()
     {
         ConfiguredSshActionPolicy policy = CreatePolicy();
@@ -189,7 +248,11 @@ public sealed class SshActionPolicyTests
     {
         SshConnectorOptions options = CreateOptions();
         options.Targets["demo-ssh"].Profiles["remote.readonly.inspect"].Actions.Add("empty.read");
-        options.Targets["demo-ssh"].Actions["empty.read"] = new SshActionOptions();
+        options.Targets["demo-ssh"].Actions["empty.read"] = new SshActionOptions
+        {
+            IsMutating = false,
+            Risk = RiskLevel.Low,
+        };
         ConfiguredSshActionPolicy policy = new ConfiguredSshActionPolicy(options);
 
         SshActionPolicyResult result = policy.Resolve(
@@ -197,6 +260,48 @@ public sealed class SshActionPolicyTests
             "empty.read",
             Grants(("demo-ssh", "remote.readonly.inspect")),
             null
+        );
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(SshActionPolicyFailureReason.InvalidConfiguration, result.FailureReason);
+        Assert.Null(result.ResolvedAction);
+        Assert.NotNull(result.Error);
+    }
+
+    [Fact]
+    public void Resolve_Should_FailWithTypedFailure_When_ActionMetadataIsMissing()
+    {
+        SshConnectorOptions options = CreateOptions();
+        options.Targets["demo-ssh"].Actions["system.status.read"].Risk = null;
+        ConfiguredSshActionPolicy policy = new ConfiguredSshActionPolicy(options);
+
+        SshActionPolicyResult result = policy.Resolve(
+            "demo-ssh",
+            "system.status.read",
+            Grants(("demo-ssh", "remote.readonly.inspect")),
+            null
+        );
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(SshActionPolicyFailureReason.InvalidConfiguration, result.FailureReason);
+        Assert.Null(result.ResolvedAction);
+        Assert.NotNull(result.Error);
+    }
+
+    [Fact]
+    public void Resolve_Should_FailWithTypedFailure_When_ActionMetadataCombinationIsInvalid()
+    {
+        SshConnectorOptions options = CreateOptions();
+        SshActionOptions action = options.Targets["demo-ssh"].Actions["service.restart"];
+        action.IsMutating = true;
+        action.Risk = RiskLevel.Low;
+        ConfiguredSshActionPolicy policy = new ConfiguredSshActionPolicy(options);
+
+        SshActionPolicyResult result = policy.Resolve(
+            "demo-ssh",
+            "service.restart",
+            Grants(("demo-ssh", "remote.maintenance.basic")),
+            JsonSerializer.SerializeToElement(new { service = "demo-app" })
         );
 
         Assert.False(result.Succeeded);
@@ -268,6 +373,9 @@ public sealed class SshActionPolicyTests
                         "system.status.read",
                     ["SshConnector:Targets:demo-ssh:Actions:system.status.read:Command:0"] =
                         "uname",
+                    ["SshConnector:Targets:demo-ssh:Actions:system.status.read:IsMutating"] =
+                        "false",
+                    ["SshConnector:Targets:demo-ssh:Actions:system.status.read:Risk"] = "Low",
                     ["SshConnector:Targets:demo-ssh:Actions:system.status.read:TimeoutSeconds"] =
                         "0",
                     ["SshConnector:Targets:demo-ssh:Actions:system.status.read:OutputLimitBytes"] =
@@ -354,16 +462,24 @@ public sealed class SshActionPolicyTests
                         {
                             Actions = new List<string> { "disk.usage.read" },
                         },
+                        ["remote.maintenance.basic"] = new SshProfileOptions
+                        {
+                            Actions = new List<string> { "service.restart" },
+                        },
                     },
                     Actions = new Dictionary<string, SshActionOptions>(StringComparer.Ordinal)
                     {
                         ["system.status.read"] = new SshActionOptions
                         {
                             Command = new List<string> { "uname", "-a" },
+                            IsMutating = false,
+                            Risk = RiskLevel.Low,
                         },
                         ["disk.usage.read"] = new SshActionOptions
                         {
                             Command = new List<string> { "df", "-h" },
+                            IsMutating = false,
+                            Risk = RiskLevel.Low,
                         },
                         ["service.status.read"] = new SshActionOptions
                         {
@@ -377,8 +493,27 @@ public sealed class SshActionPolicyTests
                                 StringComparer.Ordinal
                             )
                             {
-                                ["service"] = new List<string> { "ssh" },
+                                ["service"] = new List<string> { "sshd" },
                             },
+                            IsMutating = false,
+                            Risk = RiskLevel.Low,
+                        },
+                        ["service.restart"] = new SshActionOptions
+                        {
+                            CommandTemplate = new List<string>
+                            {
+                                "systemctl",
+                                "restart",
+                                "{service}",
+                            },
+                            AllowedParameters = new Dictionary<string, List<string>>(
+                                StringComparer.Ordinal
+                            )
+                            {
+                                ["service"] = new List<string> { "demo-app" },
+                            },
+                            IsMutating = true,
+                            Risk = RiskLevel.High,
                         },
                     },
                 },

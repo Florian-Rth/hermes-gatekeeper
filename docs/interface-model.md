@@ -137,7 +137,8 @@ Stattdessen generische, aber typisierte Action-Klassen:
 - `service.status.read`
 - `container.list`
 - `container.logs.read`
-- später: `service.restart`, `container.restart`
+- aktuell als erster kontrollierter Safe-Write-Slice: `service.restart`
+- später: `container.restart`
 
 ## Minimaler API Flow
 

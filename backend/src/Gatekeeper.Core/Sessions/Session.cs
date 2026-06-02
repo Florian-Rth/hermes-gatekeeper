@@ -1,3 +1,4 @@
+using System.Linq;
 using Gatekeeper.Core.AccessRequests;
 
 namespace Gatekeeper.Core.Sessions;
@@ -13,6 +14,7 @@ public sealed class Session
         SessionStatus status,
         IReadOnlyList<string> allowedTargets,
         IReadOnlyList<string> allowedCapabilities,
+        IReadOnlyList<SshProfileGrant> sshProfileGrants,
         DateTimeOffset createdAt,
         DateTimeOffset expiresAt,
         int actionCount,
@@ -27,6 +29,7 @@ public sealed class Session
         Status = status;
         AllowedTargets = allowedTargets;
         AllowedCapabilities = allowedCapabilities;
+        SshProfileGrants = sshProfileGrants;
         CreatedAt = createdAt;
         ExpiresAt = expiresAt;
         ActionCount = actionCount;
@@ -45,6 +48,8 @@ public sealed class Session
     public IReadOnlyList<string> AllowedTargets { get; }
 
     public IReadOnlyList<string> AllowedCapabilities { get; }
+
+    public IReadOnlyList<SshProfileGrant> SshProfileGrants { get; }
 
     public DateTimeOffset CreatedAt { get; }
 
@@ -83,6 +88,7 @@ public sealed class Session
             SessionStatus.Active,
             request.Targets,
             request.RequestedCapabilities,
+            CreateSshProfileGrants(request),
             now,
             now.AddMinutes(request.DurationMinutes),
             0,
@@ -104,6 +110,7 @@ public sealed class Session
         SessionStatus status,
         IReadOnlyList<string> allowedTargets,
         IReadOnlyList<string> allowedCapabilities,
+        IReadOnlyList<SshProfileGrant> sshProfileGrants,
         DateTimeOffset createdAt,
         DateTimeOffset expiresAt,
         int actionCount,
@@ -132,6 +139,39 @@ public sealed class Session
             status,
             allowedTargets,
             allowedCapabilities,
+            sshProfileGrants,
+            createdAt,
+            expiresAt,
+            actionCount,
+            maxActionCount,
+            completedAt,
+            revokedAt,
+            expiredAt
+        );
+    }
+
+    public static Session Load(
+        Guid id,
+        Guid accessRequestId,
+        SessionStatus status,
+        IReadOnlyList<string> allowedTargets,
+        IReadOnlyList<string> allowedCapabilities,
+        DateTimeOffset createdAt,
+        DateTimeOffset expiresAt,
+        int actionCount,
+        int maxActionCount,
+        DateTimeOffset? completedAt,
+        DateTimeOffset? revokedAt,
+        DateTimeOffset? expiredAt
+    )
+    {
+        return Load(
+            id,
+            accessRequestId,
+            status,
+            allowedTargets,
+            allowedCapabilities,
+            [],
             createdAt,
             expiresAt,
             actionCount,
@@ -158,6 +198,7 @@ public sealed class Session
             status,
             allowedTargets,
             allowedCapabilities,
+            [],
             createdAt,
             expiresAt,
             0,
@@ -181,6 +222,7 @@ public sealed class Session
             SessionStatus.Completed,
             AllowedTargets,
             AllowedCapabilities,
+            SshProfileGrants,
             CreatedAt,
             ExpiresAt,
             ActionCount,
@@ -204,6 +246,7 @@ public sealed class Session
             SessionStatus.Revoked,
             AllowedTargets,
             AllowedCapabilities,
+            SshProfileGrants,
             CreatedAt,
             ExpiresAt,
             ActionCount,
@@ -227,6 +270,7 @@ public sealed class Session
             SessionStatus.Expired,
             AllowedTargets,
             AllowedCapabilities,
+            SshProfileGrants,
             CreatedAt,
             ExpiresAt,
             ActionCount,
@@ -234,6 +278,37 @@ public sealed class Session
             null,
             null,
             expiredAt
+        );
+    }
+
+    public Session RecordAction(DateTimeOffset occurredAt)
+    {
+        if (Status != SessionStatus.Active)
+        {
+            throw new InvalidOperationException("Only active sessions can record actions.");
+        }
+
+        if (occurredAt > ExpiresAt)
+        {
+            throw new InvalidOperationException("Cannot record actions after session expiry.");
+        }
+
+        ValidateActionBudget(ActionCount + 1, MaxActionCount);
+
+        return new Session(
+            Id,
+            AccessRequestId,
+            Status,
+            AllowedTargets,
+            AllowedCapabilities,
+            SshProfileGrants,
+            CreatedAt,
+            ExpiresAt,
+            ActionCount + 1,
+            MaxActionCount,
+            CompletedAt,
+            RevokedAt,
+            ExpiredAt
         );
     }
 
@@ -321,5 +396,25 @@ public sealed class Session
 
                 break;
         }
+    }
+
+    private static IReadOnlyList<SshProfileGrant> CreateSshProfileGrants(AccessRequest request)
+    {
+        if (request.Targets.Count != 1)
+        {
+            return [];
+        }
+
+        string targetAlias = request.Targets[0];
+        return request
+            .RequestedCapabilities.Where(IsSshProfileCapability)
+            .Select(capability => new SshProfileGrant(targetAlias, capability))
+            .ToArray();
+    }
+
+    private static bool IsSshProfileCapability(string capability)
+    {
+        return capability.StartsWith("ssh.", StringComparison.Ordinal)
+            || capability.StartsWith("remote.", StringComparison.Ordinal);
     }
 }

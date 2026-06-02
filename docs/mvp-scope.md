@@ -2,10 +2,10 @@
 
 ## Aktueller MVP-Stand
 
-Stand 2026-05-25 ist der Dummy-MVP-Kern bis Admin Login, Approval, Session Lifecycle, Audit UI und Dummy-Action-Broker umgesetzt:
+Stand 2026-06-01 ist der MVP-Kern bis Agent API Authentication, SSH-read-only Connector und Compose-Demo umgesetzt:
 
 ```text
-Access Request -> Admin Login -> Approve/Deny -> Session -> Execute typed dummy action -> Lifecycle Controls -> Audit UI
+Agent Authenticated Access Request -> Admin Login -> Approve/Deny -> Session -> Execute typed dummy or SSH read-only action -> Lifecycle Controls -> Audit UI
 ```
 
 Bereits implementiert:
@@ -15,15 +15,17 @@ Bereits implementiert:
 - Session-Erzeugung bei Approval.
 - Session Details, Revoke, Complete, Action Budget und Audit UI.
 - Session Action Execution über `POST /api/v1/sessions/{sessionId}/actions`.
-- Dummy Capabilities `test.echo`, `test.status.read`, `test.fail`.
-- Audit Events für Request, Admin Login/Logout, Approval/Deny, Session und Action-Flows.
+- Dummy Actions `test.echo`, `test.status.read`, `test.fail`.
+- Generischer SSH-read-only Connector mit `system.status.read`, `disk.usage.read` und `service.status.read` gegen das lokale Demo-Target `demo-ssh`.
+- Agent API Authentication via `X-Gatekeeper-Agent-Key` für Request-Erstellung und Session-Action-Ausführung.
+- Audit Events für Request, Agent Auth, Admin Login/Logout, Approval/Deny, Session und Action-Flows.
 - HTTP-Integrationstests für Happy Path und zentrale Fehlerfälle.
 
 Noch offen für den MVP:
 
-- generischer SSH read-only Connector als erster echter, breit anwendbarer Target Connector.
 - persistente Compose-Daten/Keys für lauffähigen MVP-Betrieb.
-- erste dokumentierte End-to-End-Demo über Docker Compose mit Dummy- und SSH-read-only-Flow.
+- erstes kontrolliertes Safe-Write-Set für echte Maintenance-Actions.
+- eine aktualisierte End-to-End-Demo für Read-only plus erste Safe-Write-Actions.
 
 Details stehen in `docs/current-status.md`.
 
@@ -154,16 +156,15 @@ Dummy:
 
 - `test.echo`
 - `test.status.read`
-- `test.logs.read`
+- `test.fail`
 
 SSH read-only:
 
-- `ssh.command.read` nur für vorkonfigurierte, erlaubte Kommandos/Aktionsnamen.
 - `system.status.read` als gemappte read-only Aktion.
 - `disk.usage.read` als gemappte read-only Aktion.
 - `service.status.read` als gemappte read-only Aktion mit erlaubten Service-Namen.
 
-Dummy Actions werden vom Dummy Adapter beantwortet. SSH Actions laufen gegen konfigurierte SSH Targets, aber niemals als freie Shell.
+Dummy Actions werden vom Dummy Adapter beantwortet. SSH Actions laufen gegen konfigurierte SSH Targets, aber niemals als freie Shell. Das erste Safe-Write-Set wird im nächsten Schritt bewusst separat geplant und nicht stillschweigend in die read-only Profile gemischt.
 
 ### 5. Policy Engine minimal
 
@@ -174,7 +175,7 @@ MVP Policy Regeln:
 - Session muss aktiv sein
 - Session darf nicht abgelaufen sein
 - maxActions darf nicht überschritten sein
-- write/high-risk Actions werden im MVP blockiert
+- nicht explizit genehmigte write/high-risk Actions werden blockiert
 - SSH Actions müssen gegen eine konfigurierte Target-Allowlist und Action-/Command-Allowlist laufen
 - SSH Output wird begrenzt und auditiert; Secrets/Env-Dumps sind zu vermeiden
 
@@ -212,10 +213,10 @@ Speicherung zunächst in SQLite. Optional zusätzlich JSONL später.
 
 ## Nach dem MVP
 
-1. MVP-Hardening / Release Candidate nach dem SSH-read-only Connector
-2. Generischer HTTP read-only Adapter
-3. Docker read-only Adapter
-4. Safe write Actions
+1. Safe Write Actions als erste echte mutierende Produktphase
+2. MVP-/RC-Hardening für längeren Betrieb
+3. Generischer HTTP read-only Adapter
+4. Docker read-only Adapter
 5. Home Assistant Adapter
 6. Proxmox Adapter
 7. OIDC / Passkeys / mTLS

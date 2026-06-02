@@ -1,3 +1,5 @@
+using Gatekeeper.Core.AccessRequests;
+
 namespace Gatekeeper.Infrastructure.SessionActions.Ssh;
 
 public sealed class SshActionOptions
@@ -8,6 +10,10 @@ public sealed class SshActionOptions
 
     public Dictionary<string, List<string>> AllowedParameters { get; set; } =
         new(StringComparer.Ordinal);
+
+    public bool? IsMutating { get; set; }
+
+    public RiskLevel? Risk { get; set; }
 
     public int? TimeoutSeconds { get; set; }
 

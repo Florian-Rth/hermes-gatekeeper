@@ -1,6 +1,7 @@
 using Gatekeeper.Application.AccessRequests;
 using Gatekeeper.Application.AuditEvents;
 using Gatekeeper.Application.Sessions;
+using Gatekeeper.Core.AccessRequests;
 using Gatekeeper.Infrastructure.Persistence;
 using Gatekeeper.Infrastructure.Persistence.Repositories;
 using Gatekeeper.Infrastructure.SessionActions;
@@ -114,6 +115,8 @@ public static class DependencyInjection
                         .Select(a => a.Value ?? string.Empty)
                         .Where(a => !string.IsNullOrWhiteSpace(a))
                         .ToList(),
+                    IsMutating = ReadNullableBool(actionSection, "IsMutating"),
+                    Risk = ReadNullableRiskLevel(actionSection, "Risk"),
                     TimeoutSeconds = ReadPositiveNullableInt(actionSection, "TimeoutSeconds"),
                     OutputLimitBytes = ReadPositiveNullableInt(actionSection, "OutputLimitBytes"),
                 };
@@ -174,6 +177,26 @@ public static class DependencyInjection
         }
 
         return value > 0 ? value : null;
+    }
+
+    private static bool? ReadNullableBool(IConfigurationSection section, string key)
+    {
+        if (!bool.TryParse(section[key], out bool value))
+        {
+            return null;
+        }
+
+        return value;
+    }
+
+    private static RiskLevel? ReadNullableRiskLevel(IConfigurationSection section, string key)
+    {
+        if (!Enum.TryParse(section[key], true, out RiskLevel value) || !Enum.IsDefined(value))
+        {
+            return null;
+        }
+
+        return value;
     }
 
     private static string ResolveConnectionString(IConfiguration configuration)

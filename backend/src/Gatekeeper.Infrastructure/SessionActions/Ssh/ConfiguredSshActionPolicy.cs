@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Gatekeeper.Application.Sessions;
+using Gatekeeper.Core.AccessRequests;
 
 namespace Gatekeeper.Infrastructure.SessionActions.Ssh;
 
@@ -54,6 +55,15 @@ public sealed class ConfiguredSshActionPolicy : ISshActionPolicy
             );
         }
 
+        SshActionMetadataValidation metadataValidation = ValidateActionMetadata(action);
+        if (!metadataValidation.Succeeded)
+        {
+            return SshActionPolicyResult.Failed(
+                SshActionPolicyFailureReason.InvalidConfiguration,
+                metadataValidation.Error!
+            );
+        }
+
         SshCommandResolution commandResolution = ResolveCommand(
             action,
             parameterResolution.SafeParameters
@@ -72,7 +82,9 @@ public sealed class ConfiguredSshActionPolicy : ISshActionPolicy
             commandResolution.Command,
             parameterResolution.SafeParameters,
             TimeSpan.FromSeconds(ResolveTimeoutSeconds(action, target)),
-            ResolveOutputLimitBytes(action, target)
+            ResolveOutputLimitBytes(action, target),
+            metadataValidation.IsMutating,
+            metadataValidation.Risk
         );
 
         return SshActionPolicyResult.Success(resolvedAction);
@@ -115,6 +127,38 @@ public sealed class ConfiguredSshActionPolicy : ISshActionPolicy
         }
 
         return false;
+    }
+
+    private static SshActionMetadataValidation ValidateActionMetadata(SshActionOptions action)
+    {
+        if (!action.IsMutating.HasValue)
+        {
+            return SshActionMetadataValidation.Failed(
+                "SSH action mutating metadata must be configured explicitly."
+            );
+        }
+
+        if (!action.Risk.HasValue)
+        {
+            return SshActionMetadataValidation.Failed(
+                "SSH action risk metadata must be configured explicitly."
+            );
+        }
+
+        if (action.IsMutating.Value)
+        {
+            return action.Risk.Value == RiskLevel.Low
+                ? SshActionMetadataValidation.Failed(
+                    "Mutating SSH actions must not use low risk metadata."
+                )
+                : SshActionMetadataValidation.Success(true, action.Risk.Value);
+        }
+
+        return action.Risk.Value == RiskLevel.Low
+            ? SshActionMetadataValidation.Success(false, RiskLevel.Low)
+            : SshActionMetadataValidation.Failed(
+                "Read-only SSH actions must use low risk metadata."
+            );
     }
 
     private static SshParameterResolution ResolveParameters(
@@ -269,6 +313,40 @@ public sealed class ConfiguredSshActionPolicy : ISshActionPolicy
         public static SshCommandResolution Failed(string error)
         {
             return new SshCommandResolution(false, Array.Empty<string>(), error);
+        }
+    }
+
+    private sealed class SshActionMetadataValidation
+    {
+        private SshActionMetadataValidation(
+            bool succeeded,
+            bool isMutating,
+            RiskLevel risk,
+            string? error
+        )
+        {
+            Succeeded = succeeded;
+            IsMutating = isMutating;
+            Risk = risk;
+            Error = error;
+        }
+
+        public bool Succeeded { get; }
+
+        public bool IsMutating { get; }
+
+        public RiskLevel Risk { get; }
+
+        public string? Error { get; }
+
+        public static SshActionMetadataValidation Success(bool isMutating, RiskLevel risk)
+        {
+            return new SshActionMetadataValidation(true, isMutating, risk, null);
+        }
+
+        public static SshActionMetadataValidation Failed(string error)
+        {
+            return new SshActionMetadataValidation(false, false, RiskLevel.Low, error);
         }
     }
 

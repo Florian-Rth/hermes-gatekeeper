@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Gatekeeper.Core.Sessions;
 
 namespace Gatekeeper.Infrastructure.Persistence.Repositories;
 
@@ -31,5 +32,19 @@ internal static class JsonColumnSerializer
             SerializerOptions
         );
         return values ?? new Dictionary<string, string>();
+    }
+
+    public static string SerializeSshProfileGrantList(IReadOnlyList<SshProfileGrant> values)
+    {
+        return JsonSerializer.Serialize(values, SerializerOptions);
+    }
+
+    public static IReadOnlyList<SshProfileGrant> DeserializeSshProfileGrantList(string json)
+    {
+        SshProfileGrant[]? values = JsonSerializer.Deserialize<SshProfileGrant[]>(
+            json,
+            SerializerOptions
+        );
+        return values ?? [];
     }
 }

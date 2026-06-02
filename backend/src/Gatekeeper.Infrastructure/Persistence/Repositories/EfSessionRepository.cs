@@ -66,6 +66,9 @@ public sealed class EfSessionRepository : ISessionRepository
             AllowedCapabilitiesJson = JsonColumnSerializer.SerializeStringList(
                 session.AllowedCapabilities
             ),
+            SshProfileGrantsJson = JsonColumnSerializer.SerializeSshProfileGrantList(
+                session.SshProfileGrants
+            ),
             CreatedAt = session.CreatedAt,
             ExpiresAt = session.ExpiresAt,
             ActionCount = session.ActionCount,
@@ -84,6 +87,7 @@ public sealed class EfSessionRepository : ISessionRepository
             entity.Status,
             JsonColumnSerializer.DeserializeStringList(entity.AllowedTargetsJson),
             JsonColumnSerializer.DeserializeStringList(entity.AllowedCapabilitiesJson),
+            JsonColumnSerializer.DeserializeSshProfileGrantList(entity.SshProfileGrantsJson),
             entity.CreatedAt,
             entity.ExpiresAt,
             entity.ActionCount,

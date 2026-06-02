@@ -4,9 +4,11 @@ using System.Text.Json;
 using Gatekeeper.Api.AgentAuthentication;
 using Gatekeeper.Application.AccessRequests;
 using Gatekeeper.Application.Sessions;
+using Gatekeeper.Core.AccessRequests;
 using Gatekeeper.Core.Sessions;
 using Gatekeeper.Infrastructure.Persistence;
 using Gatekeeper.Infrastructure.Persistence.Entities;
+using Gatekeeper.Infrastructure.Persistence.Repositories;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -1149,6 +1151,186 @@ public sealed class AccessRequestEndpointTests
     }
 
     [Fact]
+    public async Task Should_ExecuteMutatingSshAction_When_MaintenanceProfileIsApproved()
+    {
+        var policy = new FakeSshActionPolicy();
+        var executor = new FakeSshCommandExecutor();
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory(
+            configureServices: services =>
+            {
+                services.RemoveAll<ISshActionPolicy>();
+                services.RemoveAll<ISshCommandExecutor>();
+                services.AddSingleton<ISshActionPolicy>(policy);
+                services.AddSingleton<ISshCommandExecutor>(executor);
+            }
+        );
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+
+        using HttpResponseMessage createResponse = await client.PostAsJsonAsync(
+            "/api/v1/access-requests",
+            new
+            {
+                intent = "Restart demo app",
+                requester = "agent-1",
+                targets = new[] { "demo-ssh" },
+                requestedCapabilities = new[] { "remote.maintenance.basic" },
+                durationMinutes = 15,
+                risk = "High",
+                justification = "Need to recover the demo app.",
+                proposedActions = new[] { "Restart demo app" },
+                forbiddenActions = new[] { "Restart other services" },
+                metadata = new Dictionary<string, string> { ["ticket"] = "MAINT-1" },
+            },
+            TestContext.Current.CancellationToken
+        );
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        using JsonDocument createDocument = await JsonDocument.ParseAsync(
+            await createResponse.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken),
+            cancellationToken: TestContext.Current.CancellationToken
+        );
+        Guid accessRequestId = createDocument.RootElement.GetProperty("id").GetGuid();
+        Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/sessions/{sessionId}/actions",
+            new
+            {
+                target = "demo-ssh",
+                action = "service.restart",
+                parameters = new { service = "demo-app" },
+            },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument document = await JsonDocument.ParseAsync(
+            await response.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken),
+            cancellationToken: TestContext.Current.CancellationToken
+        );
+        Assert.Equal(sessionId, document.RootElement.GetProperty("sessionId").GetGuid());
+        Assert.Equal("service.restart", document.RootElement.GetProperty("capability").GetString());
+        Assert.Equal("demo-ssh", document.RootElement.GetProperty("target").GetString());
+        Assert.Equal("service.restart", document.RootElement.GetProperty("action").GetString());
+        Assert.True(
+            document.RootElement.GetProperty("result").GetProperty("isMutating").GetBoolean()
+        );
+        Assert.Equal(
+            "High",
+            document.RootElement.GetProperty("result").GetProperty("risk").GetString()
+        );
+        Assert.Equal(
+            0,
+            document.RootElement.GetProperty("result").GetProperty("exitCode").GetInt32()
+        );
+
+        JsonElement executedAuditPayload = await GetSingleAuditPayloadAsync(
+            factory,
+            sessionId,
+            "SessionActionExecuted"
+        );
+        Assert.Equal("demo-ssh", executedAuditPayload.GetProperty("TargetAlias").GetString());
+        Assert.Equal("service.restart", executedAuditPayload.GetProperty("Action").GetString());
+        Assert.True(executedAuditPayload.GetProperty("IsMutating").GetBoolean());
+        Assert.Equal("High", executedAuditPayload.GetProperty("Risk").GetString());
+        Assert.Equal(
+            "demo-app",
+            executedAuditPayload.GetProperty("SafeParameters").GetProperty("service").GetString()
+        );
+
+        JsonElement allowedAuditPayload = await GetSingleAuditPayloadAsync(
+            factory,
+            sessionId,
+            "SessionActionAllowed"
+        );
+        Assert.Equal("demo-ssh", allowedAuditPayload.GetProperty("TargetAlias").GetString());
+        Assert.Equal("service.restart", allowedAuditPayload.GetProperty("Action").GetString());
+        Assert.True(allowedAuditPayload.GetProperty("IsMutating").GetBoolean());
+        Assert.Equal("High", allowedAuditPayload.GetProperty("Risk").GetString());
+        Assert.Equal(
+            "demo-app",
+            allowedAuditPayload.GetProperty("SafeParameters").GetProperty("service").GetString()
+        );
+        Assert.Equal(1, policy.ResolveCount);
+        Assert.Equal(1, executor.ExecuteCount);
+    }
+
+    [Fact]
+    public async Task Should_ReturnForbidden_When_SshGrantDoesNotApplyToRequestedTarget()
+    {
+        var policy = new FakeSshActionPolicy();
+        var executor = new FakeSshCommandExecutor();
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory(
+            configureServices: services =>
+            {
+                services.RemoveAll<ISshActionPolicy>();
+                services.RemoveAll<ISshCommandExecutor>();
+                services.AddSingleton<ISshActionPolicy>(policy);
+                services.AddSingleton<ISshCommandExecutor>(executor);
+            }
+        );
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+
+        Session seededSession = Session.Load(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            SessionStatus.Active,
+            ["prod-api", "prod-db"],
+            ["ssh.read"],
+            [new SshProfileGrant("prod-api", "ssh.read")],
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow.AddMinutes(30),
+            0,
+            Session.DefaultMaxActionCount,
+            null,
+            null,
+            null
+        );
+
+        await using (AsyncServiceScope scope = factory.Services.CreateAsyncScope())
+        {
+            GatekeeperDbContext dbContext =
+                scope.ServiceProvider.GetRequiredService<GatekeeperDbContext>();
+            await new EfSessionRepository(dbContext).AddAsync(
+                seededSession,
+                TestContext.Current.CancellationToken
+            );
+            await dbContext.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/sessions/{seededSession.Id}/actions",
+            new
+            {
+                target = "prod-db",
+                action = "logs.tail",
+                parameters = new { lines = "100" },
+            },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(1, policy.ResolveCount);
+        Assert.Equal(0, executor.ExecuteCount);
+        Assert.Equal(0, await GetSessionActionCountAsync(factory, seededSession.Id));
+
+        JsonElement auditPayload = await GetSingleAuditPayloadAsync(
+            factory,
+            seededSession.Id,
+            "SessionActionDenied"
+        );
+        Assert.Equal("prod-db", auditPayload.GetProperty("TargetAlias").GetString());
+        Assert.Equal("logs.tail", auditPayload.GetProperty("Action").GetString());
+        Assert.Equal("profile_not_allowed", auditPayload.GetProperty("ReasonCode").GetString());
+        AssertNoLegacySshAuditFields(auditPayload);
+    }
+
+    [Fact]
     public async Task Should_ReturnForbidden_When_SshTargetIsNotApproved()
     {
         var executor = new FakeSshCommandExecutor();
@@ -2022,15 +2204,103 @@ public sealed class AccessRequestEndpointTests
         )
         {
             ResolveCount++;
-            if (!string.Equals(targetAlias, "prod-api", StringComparison.Ordinal))
+
+            if (
+                (
+                    string.Equals(targetAlias, "prod-api", StringComparison.Ordinal)
+                    || string.Equals(targetAlias, "prod-db", StringComparison.Ordinal)
+                ) && string.Equals(actionName, "logs.tail", StringComparison.Ordinal)
+            )
             {
-                return SshActionPolicyResult.Failed(
-                    SshActionPolicyFailureReason.UnknownTarget,
-                    "Unknown SSH target."
+                bool hasApprovedGrant = approvedProfileGrants.Any(grant =>
+                    string.Equals(grant.TargetAlias, targetAlias, StringComparison.Ordinal)
+                    && string.Equals(grant.ProfileName, "ssh.read", StringComparison.Ordinal)
+                );
+                if (!hasApprovedGrant)
+                {
+                    return SshActionPolicyResult.Failed(
+                        SshActionPolicyFailureReason.MissingProfileMembership,
+                        "No approved SSH profile permits the requested action."
+                    );
+                }
+
+                if (
+                    parameters.HasValue
+                    && parameters.Value.TryGetProperty("lines", out JsonElement lines)
+                    && string.Equals(lines.GetString(), "invalid", StringComparison.Ordinal)
+                )
+                {
+                    return SshActionPolicyResult.Failed(
+                        SshActionPolicyFailureReason.InvalidParameter,
+                        "Invalid SSH action parameter."
+                    );
+                }
+
+                return SshActionPolicyResult.Success(
+                    new SshResolvedAction(
+                        targetAlias,
+                        actionName,
+                        ["tail", "-n", "100", "/var/log/app.log"],
+                        new Dictionary<string, string> { ["lines"] = "100" },
+                        TimeSpan.FromSeconds(5),
+                        4096,
+                        false,
+                        RiskLevel.Low
+                    )
                 );
             }
 
-            if (!string.Equals(actionName, "logs.tail", StringComparison.Ordinal))
+            if (
+                string.Equals(targetAlias, "demo-ssh", StringComparison.Ordinal)
+                && string.Equals(actionName, "service.restart", StringComparison.Ordinal)
+            )
+            {
+                bool hasApprovedGrant = approvedProfileGrants.Any(grant =>
+                    string.Equals(grant.TargetAlias, "demo-ssh", StringComparison.Ordinal)
+                    && string.Equals(
+                        grant.ProfileName,
+                        "remote.maintenance.basic",
+                        StringComparison.Ordinal
+                    )
+                );
+                if (!hasApprovedGrant)
+                {
+                    return SshActionPolicyResult.Failed(
+                        SshActionPolicyFailureReason.MissingProfileMembership,
+                        "No approved SSH profile permits the requested action."
+                    );
+                }
+
+                if (
+                    !parameters.HasValue
+                    || !parameters.Value.TryGetProperty("service", out JsonElement service)
+                    || !string.Equals(service.GetString(), "demo-app", StringComparison.Ordinal)
+                )
+                {
+                    return SshActionPolicyResult.Failed(
+                        SshActionPolicyFailureReason.InvalidParameter,
+                        "Invalid SSH action parameter."
+                    );
+                }
+
+                return SshActionPolicyResult.Success(
+                    new SshResolvedAction(
+                        targetAlias,
+                        actionName,
+                        ["systemctl", "restart", "demo-app"],
+                        new Dictionary<string, string> { ["service"] = "demo-app" },
+                        TimeSpan.FromSeconds(15),
+                        4096,
+                        true,
+                        RiskLevel.High
+                    )
+                );
+            }
+
+            if (
+                string.Equals(targetAlias, "prod-api", StringComparison.Ordinal)
+                || string.Equals(targetAlias, "demo-ssh", StringComparison.Ordinal)
+            )
             {
                 return SshActionPolicyResult.Failed(
                     SshActionPolicyFailureReason.UnknownAction,
@@ -2038,39 +2308,9 @@ public sealed class AccessRequestEndpointTests
                 );
             }
 
-            bool hasApprovedGrant = approvedProfileGrants.Any(grant =>
-                string.Equals(grant.TargetAlias, "prod-api", StringComparison.Ordinal)
-                && string.Equals(grant.ProfileName, "ssh.read", StringComparison.Ordinal)
-            );
-            if (!hasApprovedGrant)
-            {
-                return SshActionPolicyResult.Failed(
-                    SshActionPolicyFailureReason.MissingProfileMembership,
-                    "No approved SSH profile permits the requested action."
-                );
-            }
-
-            if (
-                parameters.HasValue
-                && parameters.Value.TryGetProperty("lines", out JsonElement lines)
-                && string.Equals(lines.GetString(), "invalid", StringComparison.Ordinal)
-            )
-            {
-                return SshActionPolicyResult.Failed(
-                    SshActionPolicyFailureReason.InvalidParameter,
-                    "Invalid SSH action parameter."
-                );
-            }
-
-            return SshActionPolicyResult.Success(
-                new SshResolvedAction(
-                    targetAlias,
-                    actionName,
-                    ["tail", "-n", "100", "/var/log/app.log"],
-                    new Dictionary<string, string> { ["lines"] = "100" },
-                    TimeSpan.FromSeconds(5),
-                    4096
-                )
+            return SshActionPolicyResult.Failed(
+                SshActionPolicyFailureReason.UnknownTarget,
+                "Unknown SSH target."
             );
         }
     }

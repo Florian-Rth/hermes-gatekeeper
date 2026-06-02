@@ -1,8 +1,8 @@
 # Hermes Gatekeeper — Current Project Status
 
-Last updated: 2026-05-31
+Last updated: 2026-06-01
 Current branch: `main`
-Latest product/deploy commit: `7f99ff1 feat: add compose ssh demo target`
+Latest product/deploy commit: `a9451c8 feat: complete phase 9 agent auth hardening`
 
 ## Executive Summary
 
@@ -488,6 +488,35 @@ Parameterized SSH action example:
 }
 ```
 
+## Currently Supported Actions
+
+### Dummy Actions
+
+- `test.echo`
+  - Purpose: simple end-to-end echo/smoke path.
+- `test.status.read`
+  - Purpose: simple read-only status check through the legacy dummy adapter.
+- `test.fail`
+  - Purpose: deterministic failure path for tests and error handling.
+
+### SSH Read-only Actions
+
+These use the typed SSH action request shape and remain server-side configured.
+
+Compose/development demo target today:
+
+- target: `demo-ssh`
+- profile: `remote.readonly.inspect`
+
+Currently configured actions for that demo target:
+
+- `system.status.read`
+- `disk.usage.read`
+- `service.status.read`
+  - allowlisted parameter today: `service=sshd`
+
+Planned next product expansion is not more generic hardening work first, but the first safe write-action set described in `docs/phase-12-safe-write-actions.md`.
+
 
 ### Audit Events
 
@@ -525,24 +554,30 @@ These are not bugs in the current phase; they are intentionally deferred scope:
 - No SSH target/policy management UI; SSH targets/profiles/actions are server-side configuration.
 - No action history UI beyond the audit event API.
 - No production/HomeLab integration yet; only the controlled local Compose SSH demo is configured.
+- No global write-action risk model yet; Phase 12 currently focuses on the first controlled `service.restart` slice with explicit mutating/risk metadata and a separate maintenance profile.
 - No raw shell and no break-glass flow.
 - No OIDC, mTLS, TOTP, Passkeys, or multi-admin approval.
 
 ## Recommended Next Phase
 
-Recommended next phase: TBD after Phase 9 validation/commit.
+Current active phase: Phase 12 — Safe Write Actions.
 
-Most recent hardening plan: `docs/phase-9-mvp-hardening-agent-auth.md`.
+Current slice in progress: W2 `service.restart` for the local Compose demo target.
+
+Detail plan: `docs/phase-12-safe-write-actions.md`.
 
 Reason:
 
-- Phase 9 closes the most important remaining MVP trust-boundary gap between browser-admin auth and machine-agent auth.
-- The next phase should be chosen explicitly based on deployment needs, for example stronger admin auth, connector onboarding, or operational hardening.
+- Florian explicitly chose to prioritize real product functionality over another generic hardening pass.
+- The current product already proves the bounded read-only loop; the active next step is the first controlled mutating maintenance flow.
+- The existing target/profile/action/session/audit model can naturally extend to a small allowlisted safe-write set without adding raw shell access.
 
-Planned scope:
+Current W2 scope:
 
-- Preserve the typed adapter and approval model.
-- Keep raw shell, sudo, write actions, file transfer, port forwarding, and direct productive-system onboarding out of scope unless explicitly selected.
+- Introduce a separate maintenance profile for mutating actions instead of reusing the read-only profile.
+- Deliver the first typed write action as `service.restart` on the local demo target.
+- Add explicit write-action metadata and stronger audit/result semantics.
+- Keep raw shell, sudo, generic file write/patch actions, file transfer, port forwarding, and direct productive-system onboarding out of scope.
 
 ## Important Agent Instructions
 

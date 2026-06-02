@@ -1,4 +1,5 @@
 using Gatekeeper.Application.Sessions;
+using Gatekeeper.Core.AccessRequests;
 using Gatekeeper.Infrastructure.SessionActions.Ssh;
 
 namespace Gatekeeper.Tests;
@@ -319,7 +320,9 @@ public sealed class SshCommandExecutorTests
             command,
             new Dictionary<string, string>(StringComparer.Ordinal),
             timeout ?? TimeSpan.FromSeconds(5),
-            outputLimitBytes
+            outputLimitBytes,
+            false,
+            RiskLevel.Low
         );
     }
 

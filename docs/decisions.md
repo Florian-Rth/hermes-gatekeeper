@@ -243,6 +243,6 @@ MVP-Reihenfolge:
 
 ## Nächste Schritte
 
-1. Phase 8 planen und umsetzen: generischer SSH-read-only Connector als MVP-Bestandteil.
-2. Danach MVP-Hardening/Release-Kandidat vorbereiten: Doku, Demo-Flow, Security-/Error-Handling, finale Integrationstests.
-3. Spezielle Adapter und OIDC/TOTP/Passkeys/mTLS/Multi-Admin Approval bleiben Post-MVP.
+1. Nächste konkrete Produktphase: kleines Safe-Write-Set mit `service.restart`, `service.reload`, `backup.trigger` und optional `container.restart` auf explizit unterstützten Targets.
+2. Danach RC-/Betriebshardening für längeren Compose-/Self-Hosting-Betrieb nachziehen.
+3. Spezielle Adapter und OIDC/TOTP/Passkeys/mTLS/Multi-Admin Approval bleiben danach strategische Folgephasen.
