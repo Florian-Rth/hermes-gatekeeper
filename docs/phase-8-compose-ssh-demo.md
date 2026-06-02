@@ -19,7 +19,7 @@ The Compose demo keeps the Phase 8 boundaries intact:
 - Gatekeeper resolves approved profile membership and server-side command mappings.
 - The demo SSH target runs as `gatekeeper-readonly`, with password login, root login, TTY allocation, SFTP, and forwarding disabled in the target SSH daemon. The demo authorized key is bound to a forced command wrapper that accepts only the same read-only commands Gatekeeper maps server-side.
 - Read-only actions remain tightly allowlisted: `system.status.read`, `disk.usage.read`, and `service.status.read` for the allowlisted service name `sshd`.
-- The first maintenance action slice uses a separate profile, `remote.maintenance.basic`, and one allowlisted write action: `service.restart` for `service=demo-app` only.
+- The maintenance action slice uses a separate profile, `remote.maintenance.basic`, with three allowlisted write actions: `service.restart`, `service.reload`, and `backup.trigger`.
 - Audits record safe metadata and outcome details, not SSH key content or unbounded command output.
 
 ## Target profiles demonstrated
@@ -32,8 +32,10 @@ The local demo target intentionally distinguishes read-only and maintenance auth
   - `service.status.read` with `service=sshd`
 - `remote.maintenance.basic`
   - `service.restart` with `service=demo-app`
+  - `service.reload` with `service=demo-app`
+  - `backup.trigger` with `job=nightly-config`
 
-`service.restart` does not restart `sshd`. The demo keeps the SSH transport stable by mapping the maintenance proof to the demo-owned service name `demo-app`.
+`service.restart` and `service.reload` do not touch `sshd`. The demo keeps the SSH transport stable by mapping service maintenance proofs to the demo-owned service name `demo-app`, and backup proofs to the allowlisted demo job `nightly-config`.
 
 ## Start the demo
 
@@ -76,7 +78,7 @@ export GATEKEEPER_AGENT_KEY="${GATEKEEPER_AGENT_KEY:-dev-compose-agent-key-local
 4. In the UI, select the pending request and approve it.
 5. Execute an SSH action through the session action API:
    - target: `demo-ssh`
-   - action: `system.status.read`, `disk.usage.read`, `service.status.read`, or the maintenance slice `service.restart` when the approved profile is `remote.maintenance.basic`
+   - action: `system.status.read`, `disk.usage.read`, `service.status.read`, or the maintenance actions `service.restart`, `service.reload`, `backup.trigger` when the approved profile is `remote.maintenance.basic`
 6. Review the audit feed for request creation, approval/session creation, action allowed/executed, and SSH action metadata.
 
 The current UI can display requests, sessions, action results, lifecycle state, and audit events. It does not include SSH target management UI; the SSH policy remains server-side configuration.
@@ -187,9 +189,9 @@ curl -sS -b /tmp/gatekeeper-demo-cookies.txt \
 
 Expected session/action audit event types include `SessionCreated`, `SessionActionRequested`, `SessionActionAllowed`, and `SessionActionExecuted`. Successful action events should include `agentId=compose-demo-agent` and `authMethod=apiKey`. SSH execution audit details include target alias, action name, safe parameter summary where applicable, exit status, duration, timeout/truncation flags, output size metadata, and reason code.
 
-## Maintenance smoke for the first safe-write slice
+## Maintenance smokes for the current safe-write slice set
 
-The maintenance slice keeps the same typed request/approval/action model and only changes the approved profile plus action name.
+The maintenance actions keep the same typed request/approval/action model and only change the approved profile plus action name/parameters.
 
 Create a maintenance request:
 
@@ -204,7 +206,7 @@ REQUEST_ID=$(curl -sS http://localhost:5209/api/v1/access-requests \
     "requestedCapabilities":["remote.maintenance.basic"],
     "durationMinutes":15,
     "risk":"high",
-    "justification":"Validate the first safe-write slice",
+    "justification":"Validate the maintenance action slice",
     "proposedActions":["service.restart"],
     "forbiddenActions":["raw shell","sudo","restart other services"]
   }' | jq -r '.id')
@@ -236,6 +238,36 @@ Expected outcome:
 - the action result reports `isMutating=true` and `risk=High`
 - audit events mark the action as mutating with `Risk=High`
 - the restart-count file increments and the last-restart file updates
+
+Reload the demo service through the same maintenance profile:
+
+```bash
+curl -sS "http://localhost:5209/api/v1/sessions/${SESSION_ID}/actions" \
+  -H 'Content-Type: application/json' \
+  -H "X-Gatekeeper-Agent-Key: ${GATEKEEPER_AGENT_KEY}" \
+  -d '{"target":"demo-ssh","action":"service.reload","parameters":{"service":"demo-app"}}' | jq
+```
+
+Verify the bounded reload-specific side effect:
+
+```bash
+docker compose exec demo-ssh sh -lc 'test -f /tmp/gatekeeper-demo/demo-app-reload-count && test -f /tmp/gatekeeper-demo/demo-app-last-reload && cat /tmp/gatekeeper-demo/demo-app-reload-count && cat /tmp/gatekeeper-demo/demo-app-last-reload'
+```
+
+Trigger the allowlisted demo backup job:
+
+```bash
+curl -sS "http://localhost:5209/api/v1/sessions/${SESSION_ID}/actions" \
+  -H 'Content-Type: application/json' \
+  -H "X-Gatekeeper-Agent-Key: ${GATEKEEPER_AGENT_KEY}" \
+  -d '{"target":"demo-ssh","action":"backup.trigger","parameters":{"job":"nightly-config"}}' | jq
+```
+
+Verify the bounded backup side effect:
+
+```bash
+docker compose exec demo-ssh sh -lc 'test -f /tmp/gatekeeper-demo/nightly-config-backup-count && test -f /tmp/gatekeeper-demo/nightly-config-last-backup && cat /tmp/gatekeeper-demo/nightly-config-backup-count && cat /tmp/gatekeeper-demo/nightly-config-last-backup'
+```
 
 ## Optional real-VM configuration notes
 

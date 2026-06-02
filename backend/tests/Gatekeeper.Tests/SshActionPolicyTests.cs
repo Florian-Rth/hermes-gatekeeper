@@ -222,6 +222,90 @@ public sealed class SshActionPolicyTests
     }
 
     [Fact]
+    public void Resolve_Should_NotAuthorizeReload_ForReadonlyProfile()
+    {
+        ConfiguredSshActionPolicy policy = CreatePolicy();
+
+        SshActionPolicyResult result = policy.Resolve(
+            "demo-ssh",
+            "service.reload",
+            Grants(("demo-ssh", "remote.readonly.inspect")),
+            JsonSerializer.SerializeToElement(new { service = "demo-app" })
+        );
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(SshActionPolicyFailureReason.MissingProfileMembership, result.FailureReason);
+        Assert.Null(result.ResolvedAction);
+        Assert.NotNull(result.Error);
+    }
+
+    [Fact]
+    public void Resolve_Should_AuthorizeReload_ForMaintenanceProfile_WithDistinctActionNameAndCommand()
+    {
+        ConfiguredSshActionPolicy policy = CreatePolicy();
+
+        SshActionPolicyResult result = policy.Resolve(
+            "demo-ssh",
+            "service.reload",
+            Grants(("demo-ssh", "remote.maintenance.basic")),
+            JsonSerializer.SerializeToElement(new { service = "demo-app" })
+        );
+
+        Assert.True(result.Succeeded);
+        Assert.NotNull(result.ResolvedAction);
+        Assert.Equal("service.reload", result.ResolvedAction.ActionName);
+        Assert.NotEqual("service.restart", result.ResolvedAction.ActionName);
+        Assert.Equal(new[] { "systemctl", "reload", "demo-app" }, result.ResolvedAction.Command);
+        Assert.True(result.ResolvedAction.IsMutating);
+        Assert.Equal(RiskLevel.High, result.ResolvedAction.Risk);
+    }
+
+    [Fact]
+    public void Resolve_Should_NotAuthorizeBackupTrigger_ForReadonlyProfile()
+    {
+        ConfiguredSshActionPolicy policy = CreatePolicy();
+
+        SshActionPolicyResult result = policy.Resolve(
+            "demo-ssh",
+            "backup.trigger",
+            Grants(("demo-ssh", "remote.readonly.inspect")),
+            JsonSerializer.SerializeToElement(new { job = "nightly-config" })
+        );
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(SshActionPolicyFailureReason.MissingProfileMembership, result.FailureReason);
+        Assert.Null(result.ResolvedAction);
+        Assert.NotNull(result.Error);
+    }
+
+    [Fact]
+    public void Resolve_Should_AuthorizeBackupTrigger_ForMaintenanceProfile_WithDistinctActionAndJobSemantics()
+    {
+        ConfiguredSshActionPolicy policy = CreatePolicy();
+
+        SshActionPolicyResult result = policy.Resolve(
+            "demo-ssh",
+            "backup.trigger",
+            Grants(("demo-ssh", "remote.maintenance.basic")),
+            JsonSerializer.SerializeToElement(new { job = "nightly-config" })
+        );
+
+        Assert.True(result.Succeeded);
+        Assert.NotNull(result.ResolvedAction);
+        Assert.Equal("backup.trigger", result.ResolvedAction.ActionName);
+        Assert.NotEqual("service.reload", result.ResolvedAction.ActionName);
+        Assert.NotEqual("service.restart", result.ResolvedAction.ActionName);
+        Assert.Equal(
+            new[] { "backup-job", "trigger", "nightly-config" },
+            result.ResolvedAction.Command
+        );
+        Assert.Equal("nightly-config", result.ResolvedAction.SafeParameters["job"]);
+        Assert.False(result.ResolvedAction.SafeParameters.ContainsKey("service"));
+        Assert.True(result.ResolvedAction.IsMutating);
+        Assert.Equal(RiskLevel.High, result.ResolvedAction.Risk);
+    }
+
+    [Fact]
     public void Resolve_Should_FailWithTypedFailure_When_ParameterIsDuplicated()
     {
         ConfiguredSshActionPolicy policy = CreatePolicy();
@@ -464,7 +548,12 @@ public sealed class SshActionPolicyTests
                         },
                         ["remote.maintenance.basic"] = new SshProfileOptions
                         {
-                            Actions = new List<string> { "service.restart" },
+                            Actions = new List<string>
+                            {
+                                "service.restart",
+                                "service.reload",
+                                "backup.trigger",
+                            },
                         },
                     },
                     Actions = new Dictionary<string, SshActionOptions>(StringComparer.Ordinal)
@@ -511,6 +600,35 @@ public sealed class SshActionPolicyTests
                             )
                             {
                                 ["service"] = new List<string> { "demo-app" },
+                            },
+                            IsMutating = true,
+                            Risk = RiskLevel.High,
+                        },
+                        ["service.reload"] = new SshActionOptions
+                        {
+                            CommandTemplate = new List<string>
+                            {
+                                "systemctl",
+                                "reload",
+                                "{service}",
+                            },
+                            AllowedParameters = new Dictionary<string, List<string>>(
+                                StringComparer.Ordinal
+                            )
+                            {
+                                ["service"] = new List<string> { "demo-app" },
+                            },
+                            IsMutating = true,
+                            Risk = RiskLevel.High,
+                        },
+                        ["backup.trigger"] = new SshActionOptions
+                        {
+                            CommandTemplate = new List<string> { "backup-job", "trigger", "{job}" },
+                            AllowedParameters = new Dictionary<string, List<string>>(
+                                StringComparer.Ordinal
+                            )
+                            {
+                                ["job"] = new List<string> { "nightly-config" },
                             },
                             IsMutating = true,
                             Risk = RiskLevel.High,

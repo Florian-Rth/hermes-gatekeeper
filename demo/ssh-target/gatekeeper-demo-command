@@ -27,6 +27,38 @@ case "${SSH_ORIGINAL_COMMAND:-}" in
     printf 'demo-app: restart acknowledged (count=%s, at=%s)\n' "$count" "$timestamp"
     exit 0
     ;;
+  "'systemctl' 'reload' 'demo-app'")
+    state_dir="/tmp/gatekeeper-demo"
+    counter_file="$state_dir/demo-app-reload-count"
+    marker_file="$state_dir/demo-app-last-reload"
+    mkdir -p "$state_dir"
+    count=0
+    if [ -f "$counter_file" ]; then
+      count=$(cat "$counter_file")
+    fi
+    count=$((count + 1))
+    marker="reload-$(date -u +"%Y%m%dT%H%M%SZ")"
+    printf '%s\n' "$count" > "$counter_file"
+    printf '%s\n' "$marker" > "$marker_file"
+    printf 'demo-app: reload acknowledged (count=%s, marker=%s)\n' "$count" "$marker"
+    exit 0
+    ;;
+  "'backup-job' 'trigger' 'nightly-config'")
+    state_dir="/tmp/gatekeeper-demo"
+    counter_file="$state_dir/nightly-config-backup-count"
+    marker_file="$state_dir/nightly-config-last-backup"
+    mkdir -p "$state_dir"
+    count=0
+    if [ -f "$counter_file" ]; then
+      count=$(cat "$counter_file")
+    fi
+    count=$((count + 1))
+    marker="backup-$(date -u +"%Y%m%dT%H%M%SZ")"
+    printf '%s\n' "$count" > "$counter_file"
+    printf '%s\n' "$marker" > "$marker_file"
+    printf 'nightly-config: backup acknowledged (count=%s, marker=%s)\n' "$count" "$marker"
+    exit 0
+    ;;
   *)
     echo "Command is not allowed by the Gatekeeper demo target." >&2
     exit 126

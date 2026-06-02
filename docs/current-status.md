@@ -520,6 +520,16 @@ Currently configured actions for that demo target:
   - allowlisted parameter today: `service=demo-app`
   - exposes `result.isMutating=true` and `result.risk="High"`
   - audit listing exposes `details.isMutating="true"` and `details.risk="High"`
+- `service.reload`
+  - allowed only through `remote.maintenance.basic`
+  - allowlisted parameter today: `service=demo-app`
+  - exposes `result.isMutating=true` and `result.risk="High"`
+  - audit listing exposes `details.isMutating="true"` and `details.risk="High"`
+- `backup.trigger`
+  - allowed only through `remote.maintenance.basic`
+  - allowlisted parameter today: `job=nightly-config`
+  - exposes `result.isMutating=true` and `result.risk="High"`
+  - audit listing exposes `details.isMutating="true"` and `details.risk="High"`
 
 Planned next product expansion is not more generic hardening work first, but the next small safe-write sibling slices described in `docs/phase-12-safe-write-actions.md`.
 
@@ -560,7 +570,7 @@ These are not bugs in the current phase; they are intentionally deferred scope:
 - No SSH target/policy management UI; SSH targets/profiles/actions are server-side configuration.
 - No action history UI beyond the audit event API.
 - No production/HomeLab integration yet; only the controlled local Compose SSH demo is configured.
-- No broad write-action set yet; today only the first controlled `service.restart` slice is supported on the local Compose demo target, with explicit mutating/risk metadata and a separate maintenance profile.
+- No broad write-action set yet; today the local Compose demo target supports a small maintenance trio (`service.restart`, `service.reload`, `backup.trigger`) with explicit mutating/risk metadata and a separate maintenance profile.
 - No raw shell and no break-glass flow.
 - No OIDC, mTLS, TOTP, Passkeys, or multi-admin approval.
 
@@ -568,7 +578,7 @@ These are not bugs in the current phase; they are intentionally deferred scope:
 
 Current active phase: Phase 12 — Safe Write Actions.
 
-Latest completed slice: W2a `service.restart` compose-verified vertical slice for the local Compose demo target.
+Latest completed slices: W2a `service.restart`, W3a `service.reload`, and W3b `backup.trigger` for the local Compose demo target.
 
 Detail plan: `docs/phase-12-safe-write-actions.md`.
 
@@ -578,17 +588,17 @@ Reason:
 - The current product already proves the bounded read-only loop; the active next step is the first controlled mutating maintenance flow.
 - The existing target/profile/action/session/audit model can naturally extend to a small allowlisted safe-write set without adding raw shell access.
 
-What W2a now proves:
+What the current Phase-12 demo surface now proves:
 
 - Introduce a separate maintenance profile for mutating actions instead of reusing the read-only profile.
-- Deliver the first typed write action as `service.restart` on the local demo target.
+- Deliver multiple typed write actions on the local demo target without opening raw shell access.
 - Add explicit write-action metadata and stronger audit/result semantics.
-- Prove a real bounded demo-side effect for `service=demo-app` instead of stopping at policy-only or fake-executor success.
+- Prove real bounded demo-side effects for `service=demo-app` and `job=nightly-config` instead of stopping at policy-only or fake-executor success.
 - Keep raw shell, sudo, generic file write/patch actions, file transfer, port forwarding, and direct productive-system onboarding out of scope.
 
 Recommended next slice:
 
-- W3 `service.reload` as the next small sibling action on the same target/profile/audit model.
+- W5 `container.restart` only on an explicitly supported target, or another equally narrow typed maintenance action if we want to stay on the current demo target longer.
 
 ## Important Agent Instructions
 

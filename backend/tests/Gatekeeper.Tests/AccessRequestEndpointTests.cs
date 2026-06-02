@@ -1258,6 +1258,230 @@ public sealed class AccessRequestEndpointTests
     }
 
     [Fact]
+    public async Task Should_ExecuteReloadAction_AndPersistMutatingAuditMetadata_When_SshMaintenanceGrantIsApproved()
+    {
+        var policy = new FakeSshActionPolicy();
+        var executor = new FakeSshCommandExecutor();
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory(
+            configureServices: services =>
+            {
+                services.RemoveAll<ISshActionPolicy>();
+                services.RemoveAll<ISshCommandExecutor>();
+                services.AddSingleton<ISshActionPolicy>(policy);
+                services.AddSingleton<ISshCommandExecutor>(executor);
+            }
+        );
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+
+        using HttpResponseMessage createResponse = await client.PostAsJsonAsync(
+            "/api/v1/access-requests",
+            new
+            {
+                intent = "Reload demo app",
+                requester = "agent-1",
+                targets = new[] { "demo-ssh" },
+                requestedCapabilities = new[] { "remote.maintenance.basic" },
+                durationMinutes = 15,
+                risk = "High",
+                justification = "Need to reload the demo app configuration.",
+                proposedActions = new[] { "Reload demo app" },
+                forbiddenActions = new[] { "Restart other services" },
+                metadata = new Dictionary<string, string> { ["ticket"] = "MAINT-2" },
+            },
+            TestContext.Current.CancellationToken
+        );
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        using JsonDocument createDocument = await JsonDocument.ParseAsync(
+            await createResponse.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken),
+            cancellationToken: TestContext.Current.CancellationToken
+        );
+        Guid accessRequestId = createDocument.RootElement.GetProperty("id").GetGuid();
+        Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/sessions/{sessionId}/actions",
+            new
+            {
+                target = "demo-ssh",
+                action = "service.reload",
+                parameters = new { service = "demo-app" },
+            },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument document = await JsonDocument.ParseAsync(
+            await response.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken),
+            cancellationToken: TestContext.Current.CancellationToken
+        );
+        Assert.Equal(sessionId, document.RootElement.GetProperty("sessionId").GetGuid());
+        Assert.Equal("service.reload", document.RootElement.GetProperty("capability").GetString());
+        Assert.Equal("demo-ssh", document.RootElement.GetProperty("target").GetString());
+        Assert.Equal("service.reload", document.RootElement.GetProperty("action").GetString());
+        Assert.NotEqual("service.restart", document.RootElement.GetProperty("action").GetString());
+        Assert.True(
+            document.RootElement.GetProperty("result").GetProperty("isMutating").GetBoolean()
+        );
+        Assert.Equal(
+            "High",
+            document.RootElement.GetProperty("result").GetProperty("risk").GetString()
+        );
+        Assert.Equal(
+            0,
+            document.RootElement.GetProperty("result").GetProperty("exitCode").GetInt32()
+        );
+
+        JsonElement executedAuditPayload = await GetSingleAuditPayloadAsync(
+            factory,
+            sessionId,
+            "SessionActionExecuted"
+        );
+        Assert.Equal("demo-ssh", executedAuditPayload.GetProperty("TargetAlias").GetString());
+        Assert.Equal("service.reload", executedAuditPayload.GetProperty("Action").GetString());
+        Assert.NotEqual("service.restart", executedAuditPayload.GetProperty("Action").GetString());
+        Assert.True(executedAuditPayload.GetProperty("IsMutating").GetBoolean());
+        Assert.Equal("High", executedAuditPayload.GetProperty("Risk").GetString());
+        Assert.Equal(
+            "demo-app",
+            executedAuditPayload.GetProperty("SafeParameters").GetProperty("service").GetString()
+        );
+
+        JsonElement allowedAuditPayload = await GetSingleAuditPayloadAsync(
+            factory,
+            sessionId,
+            "SessionActionAllowed"
+        );
+        Assert.Equal("demo-ssh", allowedAuditPayload.GetProperty("TargetAlias").GetString());
+        Assert.Equal("service.reload", allowedAuditPayload.GetProperty("Action").GetString());
+        Assert.True(allowedAuditPayload.GetProperty("IsMutating").GetBoolean());
+        Assert.Equal("High", allowedAuditPayload.GetProperty("Risk").GetString());
+        Assert.Equal(
+            "demo-app",
+            allowedAuditPayload.GetProperty("SafeParameters").GetProperty("service").GetString()
+        );
+        Assert.Equal(1, policy.ResolveCount);
+        Assert.Equal(1, executor.ExecuteCount);
+    }
+
+    [Fact]
+    public async Task Should_ExecuteBackupTrigger_AndPersistMutatingAuditMetadata_WithDistinctJobSemantics()
+    {
+        var policy = new FakeSshActionPolicy();
+        var executor = new FakeSshCommandExecutor();
+        await using AccessRequestApiFactory factory = new AccessRequestApiFactory(
+            configureServices: services =>
+            {
+                services.RemoveAll<ISshActionPolicy>();
+                services.RemoveAll<ISshCommandExecutor>();
+                services.AddSingleton<ISshActionPolicy>(policy);
+                services.AddSingleton<ISshCommandExecutor>(executor);
+            }
+        );
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+
+        using HttpResponseMessage createResponse = await client.PostAsJsonAsync(
+            "/api/v1/access-requests",
+            new
+            {
+                intent = "Trigger nightly config backup",
+                requester = "agent-1",
+                targets = new[] { "demo-ssh" },
+                requestedCapabilities = new[] { "remote.maintenance.basic" },
+                durationMinutes = 15,
+                risk = "High",
+                justification = "Need a bounded maintenance backup run.",
+                proposedActions = new[] { "Trigger nightly-config backup" },
+                forbiddenActions = new[] { "Restart services" },
+                metadata = new Dictionary<string, string> { ["ticket"] = "MAINT-3" },
+            },
+            TestContext.Current.CancellationToken
+        );
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        using JsonDocument createDocument = await JsonDocument.ParseAsync(
+            await createResponse.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken),
+            cancellationToken: TestContext.Current.CancellationToken
+        );
+        Guid accessRequestId = createDocument.RootElement.GetProperty("id").GetGuid();
+        Guid sessionId = await ApproveAccessRequestAsync(client, accessRequestId);
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            $"/api/v1/sessions/{sessionId}/actions",
+            new
+            {
+                target = "demo-ssh",
+                action = "backup.trigger",
+                parameters = new { job = "nightly-config" },
+            },
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument document = await JsonDocument.ParseAsync(
+            await response.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken),
+            cancellationToken: TestContext.Current.CancellationToken
+        );
+        Assert.Equal(sessionId, document.RootElement.GetProperty("sessionId").GetGuid());
+        Assert.Equal("backup.trigger", document.RootElement.GetProperty("capability").GetString());
+        Assert.Equal("demo-ssh", document.RootElement.GetProperty("target").GetString());
+        Assert.Equal("backup.trigger", document.RootElement.GetProperty("action").GetString());
+        Assert.NotEqual("service.reload", document.RootElement.GetProperty("action").GetString());
+        Assert.NotEqual("service.restart", document.RootElement.GetProperty("action").GetString());
+        Assert.True(
+            document.RootElement.GetProperty("result").GetProperty("isMutating").GetBoolean()
+        );
+        Assert.Equal(
+            "High",
+            document.RootElement.GetProperty("result").GetProperty("risk").GetString()
+        );
+        Assert.Equal(
+            0,
+            document.RootElement.GetProperty("result").GetProperty("exitCode").GetInt32()
+        );
+
+        JsonElement executedAuditPayload = await GetSingleAuditPayloadAsync(
+            factory,
+            sessionId,
+            "SessionActionExecuted"
+        );
+        Assert.Equal("demo-ssh", executedAuditPayload.GetProperty("TargetAlias").GetString());
+        Assert.Equal("backup.trigger", executedAuditPayload.GetProperty("Action").GetString());
+        Assert.True(executedAuditPayload.GetProperty("IsMutating").GetBoolean());
+        Assert.Equal("High", executedAuditPayload.GetProperty("Risk").GetString());
+        Assert.Equal(
+            "nightly-config",
+            executedAuditPayload.GetProperty("SafeParameters").GetProperty("job").GetString()
+        );
+        Assert.False(
+            executedAuditPayload.GetProperty("SafeParameters").TryGetProperty("service", out _)
+        );
+
+        JsonElement allowedAuditPayload = await GetSingleAuditPayloadAsync(
+            factory,
+            sessionId,
+            "SessionActionAllowed"
+        );
+        Assert.Equal("demo-ssh", allowedAuditPayload.GetProperty("TargetAlias").GetString());
+        Assert.Equal("backup.trigger", allowedAuditPayload.GetProperty("Action").GetString());
+        Assert.True(allowedAuditPayload.GetProperty("IsMutating").GetBoolean());
+        Assert.Equal("High", allowedAuditPayload.GetProperty("Risk").GetString());
+        Assert.Equal(
+            "nightly-config",
+            allowedAuditPayload.GetProperty("SafeParameters").GetProperty("job").GetString()
+        );
+        Assert.False(
+            allowedAuditPayload.GetProperty("SafeParameters").TryGetProperty("service", out _)
+        );
+        Assert.Equal(1, policy.ResolveCount);
+        Assert.Equal(1, executor.ExecuteCount);
+    }
+
+    [Fact]
     public async Task Should_ReturnForbidden_When_SshGrantDoesNotApplyToRequestedTarget()
     {
         var policy = new FakeSshActionPolicy();
@@ -2252,7 +2476,11 @@ public sealed class AccessRequestEndpointTests
 
             if (
                 string.Equals(targetAlias, "demo-ssh", StringComparison.Ordinal)
-                && string.Equals(actionName, "service.restart", StringComparison.Ordinal)
+                && (
+                    string.Equals(actionName, "service.restart", StringComparison.Ordinal)
+                    || string.Equals(actionName, "service.reload", StringComparison.Ordinal)
+                    || string.Equals(actionName, "backup.trigger", StringComparison.Ordinal)
+                )
             )
             {
                 bool hasApprovedGrant = approvedProfileGrants.Any(grant =>
@@ -2271,6 +2499,38 @@ public sealed class AccessRequestEndpointTests
                     );
                 }
 
+                if (string.Equals(actionName, "backup.trigger", StringComparison.Ordinal))
+                {
+                    if (
+                        !parameters.HasValue
+                        || !parameters.Value.TryGetProperty("job", out JsonElement job)
+                        || !string.Equals(
+                            job.GetString(),
+                            "nightly-config",
+                            StringComparison.Ordinal
+                        )
+                    )
+                    {
+                        return SshActionPolicyResult.Failed(
+                            SshActionPolicyFailureReason.InvalidParameter,
+                            "Invalid SSH action parameter."
+                        );
+                    }
+
+                    return SshActionPolicyResult.Success(
+                        new SshResolvedAction(
+                            targetAlias,
+                            actionName,
+                            ["backup-job", "trigger", "nightly-config"],
+                            new Dictionary<string, string> { ["job"] = "nightly-config" },
+                            TimeSpan.FromSeconds(15),
+                            4096,
+                            true,
+                            RiskLevel.High
+                        )
+                    );
+                }
+
                 if (
                     !parameters.HasValue
                     || !parameters.Value.TryGetProperty("service", out JsonElement service)
@@ -2283,11 +2543,15 @@ public sealed class AccessRequestEndpointTests
                     );
                 }
 
+                string verb = string.Equals(actionName, "service.reload", StringComparison.Ordinal)
+                    ? "reload"
+                    : "restart";
+
                 return SshActionPolicyResult.Success(
                     new SshResolvedAction(
                         targetAlias,
                         actionName,
-                        ["systemctl", "restart", "demo-app"],
+                        ["systemctl", verb, "demo-app"],
                         new Dictionary<string, string> { ["service"] = "demo-app" },
                         TimeSpan.FromSeconds(15),
                         4096,

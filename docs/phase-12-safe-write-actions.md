@@ -198,23 +198,52 @@ Expected outputs:
 - `docs/phase-8-compose-ssh-demo.md` documents both read-only and maintenance smoke flows.
 - `README.md` says `service.restart` is supported for the local Compose demo target only after W2a is actually validated.
 
-### Slice W3 — `service.reload` vertical slice
+### Slice W3a — `service.reload` vertical slice
 
-Goal: Add a lower-impact sibling action with the same policy model.
+Goal: Add a lower-impact sibling action with the same policy model as `service.restart`.
+
+Binding W3a decisions:
+
+- `service.reload` stays on the existing typed session-action endpoint; no new public API.
+- Authorization continues to use `remote.maintenance.basic`.
+- Parameters stay strictly allowlisted with exactly one string parameter: `service`.
+- The local demo target uses the same bounded service name as restart: `service=demo-app`.
+- W3a must expose mutating intent in both result payloads and audit listing with `isMutating=true` and `risk=High`.
+- W3a must prove a real demo-side effect distinct from restart, so reload and restart stay operationally distinguishable.
 
 Expected tests:
 
 - Same authorization/allowlist rules as restart.
 - Separate action name and audit trail.
+- Compose demo exposes a bounded reload-specific state effect.
 
-### Slice W4 — `backup.trigger` vertical slice
+### Slice W3b — `backup.trigger` vertical slice
 
 Goal: Add a non-service maintenance action that still fits the same typed model.
+
+Binding W3b decisions:
+
+- `backup.trigger` remains under the existing typed session-action endpoint.
+- Authorization continues to use `remote.maintenance.basic`.
+- Parameters stay strictly allowlisted with exactly one string parameter: `job`.
+- The first Compose-demo scope stays intentionally tiny with one allowlisted job such as `nightly-config`.
+- W3b must produce a bounded demo-owned side effect and bounded structured result/audit data.
 
 Expected tests:
 
 - Only allowlisted backup jobs may be triggered.
 - Result/audit remain bounded and structured.
+- Read-only profile still cannot execute the action.
+
+### Slice W3c — Truthful support-surface updates
+
+Goal: Keep the newly expanded maintenance surface short, demoable, and accurately documented.
+
+Expected outputs:
+
+- README short supported-actions section updated.
+- `docs/current-status.md` canonical supported-actions section updated.
+- `docs/phase-8-compose-ssh-demo.md` updated with reload/backup maintenance smokes.
 
 ### Slice W5 — `container.restart` target-specific support
 

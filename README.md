@@ -49,8 +49,12 @@ Kurz dokumentierte aktuell unterstützte Actions:
   - `system.status.read`
   - `disk.usage.read`
   - `service.status.read` mit allowlistetem Parameter `service=sshd`
+- SSH maintenance im Compose-/Dev-Setup (`demo-ssh`, Profil `remote.maintenance.basic`):
+  - `service.restart` mit allowlistetem Parameter `service=demo-app`
+  - `service.reload` mit allowlistetem Parameter `service=demo-app`
+  - `backup.trigger` mit allowlistetem Parameter `job=nightly-config`
 
-Als nächste konkrete Produktphase folgt jetzt die Erweiterung des Safe-Write-Sets um kleine Schwester-Actions wie `service.reload`, nicht weiteres allgemeines Hardening. Der Detailplan liegt in `docs/phase-12-safe-write-actions.md`.
+Als nächste konkrete Produktphase folgt jetzt entweder `container.restart` auf explizit unterstützten Targets oder ein weiterer kleiner typed maintenance slice, nicht weiteres allgemeines Hardening. Der Detailplan liegt in `docs/phase-12-safe-write-actions.md`.
 
 Implementiert sind:
 
@@ -78,7 +82,7 @@ Implementiert sind:
   - `POST /api/v1/sessions/{sessionId}/actions`
   - Header: `X-Gatekeeper-Agent-Key`
 - Dummy Action Adapter mit `test.echo`, `test.status.read` und `test.fail`
-- Generischer SSH-Connector mit serverseitig konfiguriertem Demo-Target `demo-ssh`, Read-only-Profil `remote.readonly.inspect`, Maintenance-Profil `remote.maintenance.basic` und Actions `system.status.read`, `disk.usage.read`, `service.status.read`, `service.restart`
+- Generischer SSH-Connector mit serverseitig konfiguriertem Demo-Target `demo-ssh`, Read-only-Profil `remote.readonly.inspect`, Maintenance-Profil `remote.maintenance.basic` und Actions `system.status.read`, `disk.usage.read`, `service.status.read`, `service.restart`, `service.reload`, `backup.trigger`
 - Audit API und Events für Request-Erstellung, Admin Login/Logout, Approval/Deny, Session-Erzeugung, Lifecycle-Übergänge und Action-Entscheidungen/Ausführung
 - Audit-Anreicherung für Agent Requests/Actions und bounded `AgentAuthenticationFailed` Events ohne API-Key-Leakage
 - Approval-Web-UI:
@@ -88,7 +92,7 @@ Implementiert sind:
   - Session Summary, Action Budget, Revoke/Complete und optionale Dummy Action anzeigen
   - Audit Events mit Filtern browsen
 
-Noch nicht implementiert sind globale Session-Operations-UI, OIDC/TOTP/Passkeys/mTLS und Multi-Admin Approval. Als erster kontrollierter Safe-Write-Slice ist `service.restart` jetzt für den lokalen Compose-Demo-Target `demo-ssh` unterstützt, separat über `remote.maintenance.basic` profiliert und auf `service=demo-app` allowlistet. Weitere Write-Actions wie `service.reload`, `backup.trigger` oder `container.restart` bleiben noch aus. Spezielle Connectoren wie Home Assistant, Docker und Proxmox bleiben Post-MVP.
+Noch nicht implementiert sind globale Session-Operations-UI, OIDC/TOTP/Passkeys/mTLS und Multi-Admin Approval. Im lokalen Compose-Demo-Target `demo-ssh` unterstützt Gatekeeper jetzt drei kontrollierte Maintenance-Actions über `remote.maintenance.basic`: `service.restart` und `service.reload` für `service=demo-app` sowie `backup.trigger` für `job=nightly-config`. `container.restart` und weitere Write-Actions bleiben noch aus. Spezielle Connectoren wie Home Assistant, Docker und Proxmox bleiben Post-MVP.
 
 Der detaillierte Projektstand für zukünftige Agents steht in `docs/current-status.md`.
 
@@ -166,7 +170,7 @@ Ports der Compose-Baseline:
 - Frontend: `http://localhost:5173`
 - Demo SSH target: interner Compose-Service `demo-ssh` auf Port 22, nicht auf den Host veröffentlicht
 
-Die Compose-Demo konfiguriert zusätzlich eine lokale Demo-Agent-Auth für `X-Gatekeeper-Agent-Key` und den Backend-Connector für `demo-ssh` mit den lokalen Profilen `remote.readonly.inspect` und `remote.maintenance.basic`. Der vollständige Request -> Approve -> Execute -> Audit Ablauf für Read-only und den ersten Safe-Write-Slice steht in `docs/phase-8-compose-ssh-demo.md`.
+Die Compose-Demo konfiguriert zusätzlich eine lokale Demo-Agent-Auth für `X-Gatekeeper-Agent-Key` und den Backend-Connector für `demo-ssh` mit den lokalen Profilen `remote.readonly.inspect` und `remote.maintenance.basic`. Der vollständige Request -> Approve -> Execute -> Audit Ablauf für Read-only sowie die Maintenance-Smokes `service.restart`, `service.reload` und `backup.trigger` steht in `docs/phase-8-compose-ssh-demo.md`.
 
 ## Dokumente
 
