@@ -155,11 +155,11 @@ Expected tests:
 - Maintenance profile authorizes only its configured actions.
 - Missing mutating metadata or invalid combinations fail safely.
 
-### Slice W2 — `service.restart` vertical slice
+### Slice W2a — `service.restart` compose-verified vertical slice
 
-Goal: First end-to-end mutating action through the existing approval/session/action flow.
+Goal: Smallest truthful end-to-end mutating action through the existing approval/session/action flow, with a real demo-side effect on the local Compose SSH target.
 
-Binding W2 decisions:
+Binding W2a decisions:
 
 - `service.restart` stays on the existing typed session-action endpoint; no new public API.
 - Authorization uses a separate maintenance profile: `remote.maintenance.basic`.
@@ -167,14 +167,36 @@ Binding W2 decisions:
 - Parameters stay strictly allowlisted with exactly one string parameter: `service`.
 - The development/demo target uses a dedicated demo service name such as `demo-app`, not `sshd`, so the running SSH connection is not destabilized by the restart demo.
 - The demo implementation may realize the restart effect through the existing forced-command wrapper as long as the Gatekeeper side still models it as a normal typed SSH action.
-- W2 must make mutating intent visible in both action result payloads and audit details with explicit `isMutating=true` and `risk=High` markers.
+- W2a must make mutating intent visible in both action result payloads and audit details with explicit `isMutating=true` and `risk=High` markers.
+- W2a must prove a real demo-side effect, not only a policy- or fake-executor success path.
+- W2a is intentionally limited to `service.restart` with exactly one allowlisted value: `service=demo-app`.
 
 Expected tests:
 
-- Approved maintenance profile can execute `service.restart` for an allowlisted service.
+- Approved maintenance profile can execute `service.restart` for the allowlisted demo service.
 - Read-only profile cannot execute `service.restart`.
 - Invalid/non-allowlisted service is denied.
 - Audit/result clearly mark the action as mutating.
+- The local Compose demo target exposes a bounded, observable restart effect for `demo-app`.
+
+Acceptance criteria for W2a:
+
+1. A session with target-scoped grant `("demo-ssh", "remote.maintenance.basic")` can execute `service.restart` with `service=demo-app`.
+2. A session with target-scoped grant `("demo-ssh", "remote.readonly.inspect")` cannot execute `service.restart`.
+3. `service.restart` rejects any non-allowlisted `service` value.
+4. Successful action responses expose `result.isMutating=true` and `result.risk="High"`.
+5. `SessionActionAllowed` and `SessionActionExecuted` audit details expose `IsMutating=true` and `Risk="High"`.
+6. The Compose demo proves a real restart side effect via demo-owned state, without restarting `sshd` or requiring raw shell.
+
+### Slice W2b — W2 truthfulness and operator docs
+
+Goal: Make the first write-action slice easy to verify and hard to misunderstand for future agents and local operators.
+
+Expected outputs:
+
+- `docs/current-status.md` names W2a explicitly instead of the broader W2 label.
+- `docs/phase-8-compose-ssh-demo.md` documents both read-only and maintenance smoke flows.
+- `README.md` says `service.restart` is supported for the local Compose demo target only after W2a is actually validated.
 
 ### Slice W3 — `service.reload` vertical slice
 

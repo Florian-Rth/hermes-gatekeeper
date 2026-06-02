@@ -31,7 +31,7 @@ Der Kern soll generisch bleiben:
 
 ## Aktueller Status
 
-Der MVP-Kern ist bis einschließlich Agent API Authentication für Request-Erstellung und Session-Actions implementiert. Die reproduzierbare lokale Compose-Demo mit generischem SSH-read-only Connector funktioniert weiter mit Agent Auth, Admin Cookie Login und Audit Attribution.
+Der MVP-Kern ist bis einschließlich des ersten kontrollierten Safe-Write-Slices implementiert. Die reproduzierbare lokale Compose-Demo mit generischem SSH-Connector funktioniert mit Agent Auth, Admin Cookie Login, Audit Attribution, read-only Actions und dem ersten allowlisteten Maintenance-Flow `service.restart`.
 
 Aktuell funktioniert:
 
@@ -50,7 +50,7 @@ Kurz dokumentierte aktuell unterstützte Actions:
   - `disk.usage.read`
   - `service.status.read` mit allowlistetem Parameter `service=sshd`
 
-Als nächste konkrete Produktphase ist jetzt ein erstes Safe-Write-Set geplant. Ziel ist nicht weiteres allgemeines Hardening, sondern kontrollierte echte Maintenance-Actions über denselben Approval-/Session-/Audit-Flow. Der Detailplan liegt in `docs/phase-12-safe-write-actions.md`.
+Als nächste konkrete Produktphase folgt jetzt die Erweiterung des Safe-Write-Sets um kleine Schwester-Actions wie `service.reload`, nicht weiteres allgemeines Hardening. Der Detailplan liegt in `docs/phase-12-safe-write-actions.md`.
 
 Implementiert sind:
 
@@ -78,7 +78,7 @@ Implementiert sind:
   - `POST /api/v1/sessions/{sessionId}/actions`
   - Header: `X-Gatekeeper-Agent-Key`
 - Dummy Action Adapter mit `test.echo`, `test.status.read` und `test.fail`
-- Generischer SSH-read-only Connector mit serverseitig konfiguriertem Demo-Target `demo-ssh`, Capability-Profil `remote.readonly.inspect` und Actions `system.status.read`, `disk.usage.read`, `service.status.read`
+- Generischer SSH-Connector mit serverseitig konfiguriertem Demo-Target `demo-ssh`, Read-only-Profil `remote.readonly.inspect`, Maintenance-Profil `remote.maintenance.basic` und Actions `system.status.read`, `disk.usage.read`, `service.status.read`, `service.restart`
 - Audit API und Events für Request-Erstellung, Admin Login/Logout, Approval/Deny, Session-Erzeugung, Lifecycle-Übergänge und Action-Entscheidungen/Ausführung
 - Audit-Anreicherung für Agent Requests/Actions und bounded `AgentAuthenticationFailed` Events ohne API-Key-Leakage
 - Approval-Web-UI:
@@ -88,7 +88,7 @@ Implementiert sind:
   - Session Summary, Action Budget, Revoke/Complete und optionale Dummy Action anzeigen
   - Audit Events mit Filtern browsen
 
-Noch nicht implementiert sind globale Session-Operations-UI, OIDC/TOTP/Passkeys/mTLS und Multi-Admin Approval. Der erste kontrollierte Safe-Write-Slice `service.restart` ist für den lokalen Compose-Demo-Target in Arbeit; weitere Write-Actions wie `service.reload`, `backup.trigger` oder `container.restart` bleiben noch aus. Spezielle Connectoren wie Home Assistant, Docker und Proxmox bleiben Post-MVP.
+Noch nicht implementiert sind globale Session-Operations-UI, OIDC/TOTP/Passkeys/mTLS und Multi-Admin Approval. Als erster kontrollierter Safe-Write-Slice ist `service.restart` jetzt für den lokalen Compose-Demo-Target `demo-ssh` unterstützt, separat über `remote.maintenance.basic` profiliert und auf `service=demo-app` allowlistet. Weitere Write-Actions wie `service.reload`, `backup.trigger` oder `container.restart` bleiben noch aus. Spezielle Connectoren wie Home Assistant, Docker und Proxmox bleiben Post-MVP.
 
 Der detaillierte Projektstand für zukünftige Agents steht in `docs/current-status.md`.
 
@@ -166,13 +166,14 @@ Ports der Compose-Baseline:
 - Frontend: `http://localhost:5173`
 - Demo SSH target: interner Compose-Service `demo-ssh` auf Port 22, nicht auf den Host veröffentlicht
 
-Die Compose-Demo konfiguriert zusätzlich eine lokale Demo-Agent-Auth für `X-Gatekeeper-Agent-Key` und den Backend-Connector für `demo-ssh` mit dem lokalen Capability-Profil `remote.readonly.inspect`. Der vollständige Request -> Approve -> Execute -> Audit Ablauf inklusive 401-Smokes steht in `docs/phase-8-compose-ssh-demo.md`.
+Die Compose-Demo konfiguriert zusätzlich eine lokale Demo-Agent-Auth für `X-Gatekeeper-Agent-Key` und den Backend-Connector für `demo-ssh` mit den lokalen Profilen `remote.readonly.inspect` und `remote.maintenance.basic`. Der vollständige Request -> Approve -> Execute -> Audit Ablauf für Read-only und den ersten Safe-Write-Slice steht in `docs/phase-8-compose-ssh-demo.md`.
 
 ## Dokumente
 
 - `docs/current-status.md` — aktueller Projektstand, implementierte Phasen, bekannte Lücken und nächste sinnvolle Schritte
-- `docs/phase-9-mvp-hardening-agent-auth.md` — nächster Detailplan für MVP-Härtung und Agent API Authentication
-- `docs/phase-8-compose-ssh-demo.md` — lokale Compose-Demo für den generischen SSH-read-only Connector mit Request -> Approve -> Execute -> Audit Ablauf
+- `docs/phase-12-safe-write-actions.md` — Detailplan für die ersten kontrollierten Safe-Write-Actions
+- `docs/phase-9-mvp-hardening-agent-auth.md` — abgeschlossener Detailplan für MVP-Härtung und Agent API Authentication
+- `docs/phase-8-compose-ssh-demo.md` — lokale Compose-Demo für den generischen SSH-Connector mit Read-only- und erstem Maintenance-Flow
 - `docs/vision.md` — Zielbild, Motivation, Kernprinzipien
 - `docs/architecture.md` — Architekturentwurf, Komponenten, Datenflüsse
 - `docs/interface-model.md` — HTTP API vs. Hermes Toolset, Agent Interface

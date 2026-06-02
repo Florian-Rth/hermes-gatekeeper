@@ -20,6 +20,7 @@ public sealed class EfAuditEventRepository : IAuditEventRepository, IAuditEventQ
         "status",
         "requester",
         "risk",
+        "isMutating",
         "target",
         "capability",
         "comment",

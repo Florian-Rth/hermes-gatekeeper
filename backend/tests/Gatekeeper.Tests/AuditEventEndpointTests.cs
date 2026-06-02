@@ -275,6 +275,84 @@ public sealed class AuditEventEndpointTests
     }
 
     [Fact]
+    public async Task ListExposesMutatingMarkerAndRiskForSafeWriteAuditEvents()
+    {
+        await using AuditEventApiFactory factory = new();
+        await factory.MigrateAsync(TestContext.Current.CancellationToken);
+        Guid sessionId = Guid.NewGuid();
+        await factory.SeedAsync(
+            [
+                new AuditEventEntity
+                {
+                    Id = Guid.NewGuid(),
+                    EventType = "SessionActionAllowed",
+                    AggregateId = sessionId,
+                    OccurredAt = DateTimeOffset.Parse("2026-05-23T10:00:00Z"),
+                    PayloadJson = JsonSerializer.Serialize(
+                        new
+                        {
+                            TargetAlias = "demo-ssh",
+                            Action = "service.restart",
+                            IsMutating = true,
+                            Risk = "High",
+                            SafeParameters = new { service = "demo-app" },
+                        }
+                    ),
+                },
+                new AuditEventEntity
+                {
+                    Id = Guid.NewGuid(),
+                    EventType = "SessionActionExecuted",
+                    AggregateId = sessionId,
+                    OccurredAt = DateTimeOffset.Parse("2026-05-23T10:00:01Z"),
+                    PayloadJson = JsonSerializer.Serialize(
+                        new
+                        {
+                            TargetAlias = "demo-ssh",
+                            Action = "service.restart",
+                            IsMutating = true,
+                            Risk = "High",
+                            SafeParameters = new { service = "demo-app" },
+                        }
+                    ),
+                },
+            ],
+            TestContext.Current.CancellationToken
+        );
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions { HandleCookies = true }
+        );
+        await LoginAsAdminAsync(client);
+
+        using HttpResponseMessage response = await client.GetAsync(
+            $"/api/v1/audit-events?aggregateId={sessionId}",
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument document = await ParseAsync(response);
+        JsonElement.ArrayEnumerator items = document
+            .RootElement.GetProperty("items")
+            .EnumerateArray();
+        Dictionary<string, JsonElement> detailsByEventType = items.ToDictionary(
+            item => item.GetProperty("eventType").GetString()!,
+            item => item.GetProperty("details")
+        );
+
+        JsonElement allowedDetails = detailsByEventType["SessionActionAllowed"];
+        Assert.Equal("service.restart", allowedDetails.GetProperty("action").GetString());
+        Assert.Equal("demo-ssh", allowedDetails.GetProperty("targetAlias").GetString());
+        Assert.Equal("true", allowedDetails.GetProperty("isMutating").GetString());
+        Assert.Equal("High", allowedDetails.GetProperty("risk").GetString());
+
+        JsonElement executedDetails = detailsByEventType["SessionActionExecuted"];
+        Assert.Equal("service.restart", executedDetails.GetProperty("action").GetString());
+        Assert.Equal("demo-ssh", executedDetails.GetProperty("targetAlias").GetString());
+        Assert.Equal("true", executedDetails.GetProperty("isMutating").GetString());
+        Assert.Equal("High", executedDetails.GetProperty("risk").GetString());
+    }
+
+    [Fact]
     public async Task ListExposesSafeSshAuditMetadataOnly()
     {
         await using AuditEventApiFactory factory = new();
