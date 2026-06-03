@@ -1,11 +1,8 @@
-using System.Globalization;
-using System.Text;
 using System.Text.Json;
 using Gatekeeper.Application.AccessRequests;
 using Gatekeeper.Application.AuditEvents;
 using Gatekeeper.Core.AccessRequests;
 using Gatekeeper.Infrastructure.Persistence.Entities;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace Gatekeeper.Infrastructure.Persistence.Repositories;
@@ -60,60 +57,41 @@ public sealed class EfAuditEventRepository : IAuditEventRepository, IAuditEventQ
         CancellationToken cancellationToken
     )
     {
-        StringBuilder sql = new("SELECT * FROM AuditEvents WHERE 1 = 1");
-        List<SqliteParameter> parameters = [];
+        IQueryable<AuditEventEntity> query = _dbContext.AuditEvents.AsNoTracking();
 
         if (criteria.AggregateId.HasValue)
         {
-            sql.Append(" AND AggregateId = @aggregateId");
-            parameters.Add(
-                new SqliteParameter("@aggregateId", ToSqliteGuid(criteria.AggregateId.Value))
-            );
+            Guid aggregateId = criteria.AggregateId.Value;
+            query = query.Where(entity => entity.AggregateId == aggregateId);
         }
 
         if (!string.IsNullOrWhiteSpace(criteria.EventType))
         {
-            sql.Append(" AND EventType = @eventType");
-            parameters.Add(new SqliteParameter("@eventType", criteria.EventType));
+            string eventType = criteria.EventType;
+            query = query.Where(entity => entity.EventType == eventType);
         }
 
-        if (criteria.From.HasValue)
-        {
-            sql.Append(" AND OccurredAt >= @from");
-            parameters.Add(
-                new SqliteParameter("@from", ToSqliteDateTimeOffset(criteria.From.Value))
-            );
-        }
-
-        if (criteria.To.HasValue)
-        {
-            sql.Append(" AND OccurredAt <= @to");
-            parameters.Add(new SqliteParameter("@to", ToSqliteDateTimeOffset(criteria.To.Value)));
-        }
+        AuditEventEntity[] orderedEntities = (await query.ToArrayAsync(cancellationToken))
+            .Where(entity => !criteria.From.HasValue || entity.OccurredAt >= criteria.From.Value)
+            .Where(entity => !criteria.To.HasValue || entity.OccurredAt <= criteria.To.Value)
+            .OrderBy(entity => entity.OccurredAt)
+            .ThenBy(entity => entity.Id)
+            .ToArray();
 
         if (criteria.Cursor is not null)
         {
-            sql.Append(
-                " AND (OccurredAt > @cursorOccurredAt OR (OccurredAt = @cursorOccurredAt AND Id > @cursorId))"
-            );
-            parameters.Add(
-                new SqliteParameter(
-                    "@cursorOccurredAt",
-                    ToSqliteDateTimeOffset(criteria.Cursor.OccurredAt)
+            DateTimeOffset cursorOccurredAt = criteria.Cursor.OccurredAt;
+            Guid cursorId = criteria.Cursor.Id;
+
+            orderedEntities = orderedEntities
+                .Where(entity =>
+                    entity.OccurredAt > cursorOccurredAt
+                    || (entity.OccurredAt == cursorOccurredAt && entity.Id.CompareTo(cursorId) > 0)
                 )
-            );
-            parameters.Add(new SqliteParameter("@cursorId", ToSqliteGuid(criteria.Cursor.Id)));
+                .ToArray();
         }
 
-        sql.Append(" ORDER BY OccurredAt, Id LIMIT @take");
-        parameters.Add(new SqliteParameter("@take", criteria.Take));
-
-        AuditEventEntity[] entities = await _dbContext
-            .AuditEvents.FromSqlRaw(sql.ToString(), parameters.ToArray<object>())
-            .AsNoTracking()
-            .ToArrayAsync(cancellationToken);
-
-        return entities.Select(ToSummary).ToArray();
+        return orderedEntities.Take(criteria.Take).Select(ToSummary).ToArray();
     }
 
     private static AuditEventSummary ToSummary(AuditEventEntity entity)
@@ -125,18 +103,6 @@ public sealed class EfAuditEventRepository : IAuditEventRepository, IAuditEventQ
             entity.OccurredAt,
             ExtractBoundedDetails(entity.PayloadJson)
         );
-    }
-
-    private static string ToSqliteDateTimeOffset(DateTimeOffset value)
-    {
-        return value
-            .ToUniversalTime()
-            .ToString("yyyy-MM-dd HH:mm:ss.FFFFFFFzzz", CultureInfo.InvariantCulture);
-    }
-
-    private static string ToSqliteGuid(Guid value)
-    {
-        return value.ToString("D").ToUpperInvariant();
     }
 
     private static IReadOnlyDictionary<string, string> ExtractBoundedDetails(string payloadJson)

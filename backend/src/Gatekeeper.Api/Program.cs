@@ -6,6 +6,7 @@ using Gatekeeper.Api.AdminAuthentication;
 using Gatekeeper.Api.AgentAuthentication;
 using Gatekeeper.Application;
 using Gatekeeper.Infrastructure;
+using Gatekeeper.Infrastructure.Catalog;
 using Gatekeeper.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -77,6 +78,10 @@ static async Task ApplyMigrationsAsync(WebApplication app, CancellationToken can
     await using AsyncServiceScope scope = app.Services.CreateAsyncScope();
     GatekeeperDbContext dbContext = scope.ServiceProvider.GetRequiredService<GatekeeperDbContext>();
     await dbContext.Database.MigrateAsync(cancellationToken);
+
+    SshCatalogBootstrapSeeder seeder =
+        scope.ServiceProvider.GetRequiredService<SshCatalogBootstrapSeeder>();
+    await seeder.SeedIfEmptyAsync(cancellationToken);
 }
 
 public sealed partial class Program { }

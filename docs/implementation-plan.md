@@ -304,10 +304,10 @@ Der Plan ist bewusst phasenorientiert: Jede Phase hat ein klares Ergebnis, eine 
 - Read-only und Dummy/Test-Adapter zuerst.
 - Auditierbarkeit ist kein Add-on, sondern Teil des MVP.
 - Docker Compose ist das MVP-Deployment-Ziel.
-- SQLite reicht für den MVP; Postgres bleibt später optional.
+- Der frühe MVP startete mit SQLite; der aktuelle Standard-Deploypfad ist PostgreSQL, während der Code auf EF-Core-Ebene provider-neutral bleibt.
 - Lokale Admin-Auth reicht für den MVP; OIDC/Passkeys/mTLS kommen später.
 - Repo-Struktur ist verbindlich: Backend in `backend/`, Frontend in `frontend/`.
-- Backend nutzt EF Core + SQLite + Migrations ab Phase 1.
+- Backend nutzt EF Core + Migrations ab Phase 1; der aktuelle Standard-Deploypfad ist PostgreSQL.
 - MVP-Auth nutzt ENV-seeded lokalen Admin und statischen Agent Client Token.
 - Frontend nutzt React + Vite + MUI + TanStack Query + Zod + Biome + Vitest.
 
@@ -867,6 +867,46 @@ Gatekeeper kann ausgewählte Low-/Medium-Risk Maintenance Actions ausführen.
 - optional kürzere Session-Laufzeit
 - klare Rollback-/Recovery-Hinweise in der UI
 
+### Geplante Anschlussphase
+
+Nach dem ersten kleinen Safe-Write-Kern soll die Action-Architektur nicht dauerhaft config-first bleiben.
+
+Siehe dafür:
+
+- `docs/phase-12x-db-first-action-catalog.md`
+
+---
+
+## Phase 12.x — DB-First Action Catalog
+
+### Ziel
+
+Die bestehende typed Action-Architektur behält ihren öffentlichen Vertrag, verlagert ihren Source of Truth aber von serverseitiger Startkonfiguration in einen DB-first Katalog.
+
+### Ergebnis
+
+Gatekeeper löst Targets, Profiles, Actions, Parameter-Allowlists und Mutating/Risk-Metadaten aus der Datenbank auf. Ein Seed-/Config-File dient nur noch als Bootstrap- oder explizite Importquelle.
+
+### Kernentscheidungen
+
+- Vollersatz statt Dauer-Hybrid.
+- Live-Resolve bei Action-Ausführung.
+- Sessions speichern weiter Grants, nicht komplette Action-Snapshots.
+- Approval bleibt target-/profile-basiert.
+- Keine Policy-Editing-UI in dieser Phase.
+
+### Warum diese Phase
+
+- Der aktuelle Code ist für Live-Resolve bereits strukturell nah am Zielbild.
+- Weitere Action-Breite auf dem alten Config-Root würde später unnötige Migrationslast erzeugen.
+- Das ist ein Architekturumbau mit echtem Produktwert, aber ohne unnötiges Security-/Governance-Aufblasen.
+
+### Detailplan
+
+Siehe:
+
+- `docs/phase-12x-db-first-action-catalog.md`
+
 ---
 
 ## Phase 13 — Home Assistant Adapter
@@ -978,10 +1018,11 @@ Für die konkrete Implementierung gehören Phase 0 bis Phase 9 zum aktuellen fun
 Nächste sinnvolle Reihenfolge ab jetzt:
 
 1. Phase 12 — Safe Write Actions
-2. Phase 9.x / RC-Hardening für längeren Betrieb
-3. Phase 10 — HTTP read-only Adapter
-4. Phase 11 — Docker read-only Adapter
-5. Phase 13 — Home Assistant Adapter
+2. Phase 12.x — DB-First Action Catalog
+3. Phase 9.x / RC-Hardening für längeren Betrieb
+4. Phase 10 — HTTP read-only Adapter
+5. Phase 11 — Docker read-only Adapter
+6. Phase 13 — Home Assistant Adapter
 
 ## MVP Definition of Done
 

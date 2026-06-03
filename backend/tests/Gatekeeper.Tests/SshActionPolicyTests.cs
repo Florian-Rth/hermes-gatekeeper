@@ -52,7 +52,54 @@ public sealed class SshActionPolicyTests
         );
         Assert.False(options.Targets["demo-ssh"].Actions["system.status.read"].IsMutating);
         Assert.Equal(RiskLevel.Low, options.Targets["demo-ssh"].Actions["system.status.read"].Risk);
-        Assert.IsType<ConfiguredSshActionPolicy>(provider.GetRequiredService<ISshActionPolicy>());
+        Assert.IsType<DbSshActionPolicy>(provider.GetRequiredService<ISshActionPolicy>());
+    }
+
+    [Fact]
+    public void AddInfrastructure_Should_FailFast_When_PostgreSqlProviderHasNoConnectionString()
+    {
+        IConfiguration configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(
+                new Dictionary<string, string?> { ["Gatekeeper:DatabaseProvider"] = "PostgreSql" }
+            )
+            .Build();
+        var services = new ServiceCollection();
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() =>
+            services.AddInfrastructure(configuration)
+        );
+
+        Assert.Contains(
+            "ConnectionStrings:Gatekeeper",
+            exception.Message,
+            StringComparison.Ordinal
+        );
+    }
+
+    [Fact]
+    public void AddInfrastructure_Should_FailFast_When_DatabaseProviderValueIsUnsupported()
+    {
+        IConfiguration configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(
+                new Dictionary<string, string?>
+                {
+                    ["Gatekeeper:DatabaseProvider"] = "Postgres",
+                    ["ConnectionStrings:Gatekeeper"] =
+                        "Host=localhost;Port=5432;Database=gatekeeper;Username=test;Password=test",
+                }
+            )
+            .Build();
+        var services = new ServiceCollection();
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() =>
+            services.AddInfrastructure(configuration)
+        );
+
+        Assert.Contains(
+            "Unsupported Gatekeeper database provider",
+            exception.Message,
+            StringComparison.Ordinal
+        );
     }
 
     [Fact]

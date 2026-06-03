@@ -2639,6 +2639,16 @@ public sealed class AccessRequestEndpointTests
                 "GATEKEEPER_SESSION_MAX_ACTION_COUNT",
                 maxActionCount?.ToString()
             );
+            ConfigureCatalogSeedTarget(
+                "prod-api",
+                host: "prod-api.example.test",
+                username: "gatekeeper-readonly"
+            );
+            ConfigureCatalogSeedTarget(
+                "prod-db",
+                host: "prod-db.example.test",
+                username: "gatekeeper-readonly"
+            );
         }
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -2664,6 +2674,111 @@ public sealed class AccessRequestEndpointTests
             await dbContext.Database.MigrateAsync(cancellationToken);
         }
 
+        private static void ConfigureCatalogSeedTarget(string alias, string host, string username)
+        {
+            Environment.SetEnvironmentVariable($"SshConnector__Targets__{alias}__Host", host);
+            Environment.SetEnvironmentVariable($"SshConnector__Targets__{alias}__Port", "22");
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Username",
+                username
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__PrivateKeyPath",
+                $"/run/secrets/{alias}-key"
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__KnownHostsPath",
+                $"/run/secrets/{alias}-known-hosts"
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Profiles__ssh.read__Actions__0",
+                "logs.tail"
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Profiles__ssh.write__Actions__0",
+                "logs.tail"
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Actions__logs.tail__Command__0",
+                "tail"
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Actions__logs.tail__Command__1",
+                "-n"
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Actions__logs.tail__Command__2",
+                "100"
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Actions__logs.tail__Command__3",
+                "/var/log/app.log"
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Actions__logs.tail__AllowedParameters__lines__0",
+                "100"
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Actions__logs.tail__IsMutating",
+                "false"
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Actions__logs.tail__Risk",
+                "Low"
+            );
+        }
+
+        private static void ClearCatalogSeedTarget(string alias)
+        {
+            Environment.SetEnvironmentVariable($"SshConnector__Targets__{alias}__Host", null);
+            Environment.SetEnvironmentVariable($"SshConnector__Targets__{alias}__Port", null);
+            Environment.SetEnvironmentVariable($"SshConnector__Targets__{alias}__Username", null);
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__PrivateKeyPath",
+                null
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__KnownHostsPath",
+                null
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Profiles__ssh.read__Actions__0",
+                null
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Profiles__ssh.write__Actions__0",
+                null
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Actions__logs.tail__Command__0",
+                null
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Actions__logs.tail__Command__1",
+                null
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Actions__logs.tail__Command__2",
+                null
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Actions__logs.tail__Command__3",
+                null
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Actions__logs.tail__AllowedParameters__lines__0",
+                null
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Actions__logs.tail__IsMutating",
+                null
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Actions__logs.tail__Risk",
+                null
+            );
+        }
+
         protected override void Dispose(bool disposing)
         {
             base.Dispose(disposing);
@@ -2676,6 +2791,8 @@ public sealed class AccessRequestEndpointTests
             Environment.SetEnvironmentVariable("AgentAuthentication__ApiKeys__0__AgentId", null);
             Environment.SetEnvironmentVariable("AgentAuthentication__ApiKeys__0__Key", null);
             Environment.SetEnvironmentVariable("GATEKEEPER_SESSION_MAX_ACTION_COUNT", null);
+            ClearCatalogSeedTarget("prod-api");
+            ClearCatalogSeedTarget("prod-db");
             if (File.Exists(_databasePath))
             {
                 File.Delete(_databasePath);

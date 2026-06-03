@@ -13,6 +13,11 @@ public sealed partial class AddSessionLifecycleFields : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
     {
+        string dateTimeOffsetType =
+            migrationBuilder.ActiveProvider == "Npgsql.EntityFrameworkCore.PostgreSQL"
+                ? "timestamp with time zone"
+                : "TEXT";
+
         migrationBuilder.AddColumn<int>(
             name: "ActionCount",
             table: "Sessions",
@@ -32,21 +37,21 @@ public sealed partial class AddSessionLifecycleFields : Migration
         migrationBuilder.AddColumn<DateTimeOffset>(
             name: "CompletedAt",
             table: "Sessions",
-            type: "TEXT",
+            type: dateTimeOffsetType,
             nullable: true
         );
 
         migrationBuilder.AddColumn<DateTimeOffset>(
             name: "RevokedAt",
             table: "Sessions",
-            type: "TEXT",
+            type: dateTimeOffsetType,
             nullable: true
         );
 
         migrationBuilder.AddColumn<DateTimeOffset>(
             name: "ExpiredAt",
             table: "Sessions",
-            type: "TEXT",
+            type: dateTimeOffsetType,
             nullable: true
         );
     }

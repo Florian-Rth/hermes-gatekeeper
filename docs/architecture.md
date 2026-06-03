@@ -48,7 +48,7 @@ Geplanter Tech Stack:
 - API Framework: FastEndpoints
 - API Dokumentation: OpenAPI/Swagger über FastEndpoints
 - Frontend: React
-- Datenbank: SQLite im MVP, Postgres optional später
+- Datenbank: PostgreSQL als Standard-Deploypfad; SQLite bleibt nur Fallback/Testpfad
 - Auth MVP: lokale Admin-Auth
 
 Aufgaben:

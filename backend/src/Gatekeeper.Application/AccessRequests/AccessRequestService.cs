@@ -14,6 +14,7 @@ public sealed class AccessRequestService : IAccessRequestService
     private readonly IAuditEventRepository _auditEvents;
     private readonly IClock _clock;
     private readonly SessionLifecycleOptions _sessionLifecycleOptions;
+    private readonly ISshApprovalCatalogValidator? _sshApprovalCatalogValidator;
 
     public AccessRequestService(
         IAccessRequestRepository accessRequests,
@@ -21,7 +22,8 @@ public sealed class AccessRequestService : IAccessRequestService
         IAccessRequestUnitOfWork unitOfWork,
         IAuditEventRepository auditEvents,
         IClock clock,
-        SessionLifecycleOptions? sessionLifecycleOptions = null
+        SessionLifecycleOptions? sessionLifecycleOptions = null,
+        ISshApprovalCatalogValidator? sshApprovalCatalogValidator = null
     )
     {
         _accessRequests = accessRequests;
@@ -30,6 +32,7 @@ public sealed class AccessRequestService : IAccessRequestService
         _auditEvents = auditEvents;
         _clock = clock;
         _sessionLifecycleOptions = sessionLifecycleOptions ?? SessionLifecycleOptions.Default;
+        _sshApprovalCatalogValidator = sshApprovalCatalogValidator;
     }
 
     public async Task<AccessRequestDetails> CreateAsync(
@@ -90,6 +93,17 @@ public sealed class AccessRequestService : IAccessRequestService
 
         var now = _clock.UtcNow;
         var approved = accessRequest.Approve(now);
+        if (
+            _sshApprovalCatalogValidator is not null
+            && !await _sshApprovalCatalogValidator.CanCreateSessionForApprovedRequestAsync(
+                approved,
+                cancellationToken
+            )
+        )
+        {
+            return ApprovalResult.Conflicted();
+        }
+
         var session = Session.CreateFromApprovedAccessRequest(
             approved,
             now,

@@ -105,11 +105,11 @@ Entscheidung: Das Frontend wird mit React + Vite gebaut und nutzt MUI, TanStack 
 
 Konsequenz: Die Frontend-Implementierung folgt den Regeln aus `florian-frontend-work`: feature-basierte Module, validierte API-Boundaries, MUI-Konventionen, Biome statt ESLint/Prettier.
 
-### 2026-05-22 — Persistenz: EF Core + SQLite + Migrations ab Phase 1
+### 2026-05-22 / 2026-06-03 — Persistenz: EF Core + Migrations, zuerst SQLite, jetzt Postgres als Standard-Deploypfad
 
-Entscheidung: Der MVP nutzt EF Core mit SQLite und Migrations ab der Domain-/Persistenzphase.
+Entscheidung: Der frühe MVP nutzte EF Core mit SQLite und Migrations ab der Domain-/Persistenzphase. Seit Phase 12.x wird der Standard-Deploypfad auf PostgreSQL umgestellt; der Anwendungscode bleibt provider-neutral auf EF-Core-Ebene, SQLite bleibt nur Fallback/Testpfad.
 
-Konsequenz: Der MVP baut nicht erst auf In-Memory-Repositories. Domain-, Service- und Persistenzgrenzen werden früh testbar und realitätsnah geschnitten.
+Konsequenz: Der MVP baut nicht erst auf In-Memory-Repositories. Domain-, Service- und Persistenzgrenzen werden früh testbar und realitätsnah geschnitten. Compose-/Produktionsdokumentation und Default-Deployment orientieren sich jetzt an PostgreSQL statt an einer SQLite-Datei.
 
 ### 2026-05-22 — Frontend Package Manager: pnpm
 
@@ -177,7 +177,7 @@ Aktueller Stand:
 - Frontend Details: Vite, MUI, TanStack Query, Zod, Biome, Vitest
 - Frontend Package Manager: pnpm
 - Deployment: Docker Compose für MVP
-- Datenbank: EF Core + SQLite + Migrations für MVP, Postgres später möglich
+- Datenbank: EF Core + Migrations; PostgreSQL ist jetzt der Standard-Deploypfad, SQLite bleibt Fallback/Testpfad
 - Auth MVP: lokale Admin-Auth per ENV Admin Credentials und HttpOnly Cookie-Session
 - Transport Hermes -> Gatekeeper: Client Token für MVP; mTLS später prüfen
 - Audit: DB + JSONL denkbar, später append-only Hash Chain
@@ -213,10 +213,19 @@ MVP-Reihenfolge:
 
 ### Policy-Modell
 
-- YAML-Konfig oder DB-basiert?
-- Policies versioniert in Git?
-- UI zum Bearbeiten von Policies oder nur manuelle Config?
-- Wie detailliert sollen Service-/Container-Allowlists sein?
+Für die nächste Action-Katalog-Phase ist entschieden:
+
+- Source of Truth: DB-first Action-Katalog, kein Dauer-Hybrid.
+- Seed-Strategie: initialer Seed aus Datei beim Setup; später expliziter Import/Reseed als Operator-Aktion, nicht automatisches Überschreiben bei jedem Start.
+- Runtime-Verhalten: Actions werden bei Ausführung live gegen die aktuelle DB-Definition aufgelöst.
+- Session-Modell: Sessions speichern weiter target-/profile-basierte Grants, keine kompletten Action-Snapshots.
+- Öffentliche Semantik: stabile Namen/Aliases bleiben der Vertragsanker; DB-IDs sind interne Persistenzdetails.
+- Phase-Scope: keine Policy-Editing-UI und kein Versioning-/Governance-Ausbau in diesem Schritt.
+
+Später weiter offen:
+
+- Wie fein zukünftige Service-/Container-Allowlists außerhalb der ersten typed Action-Sets werden sollen.
+- Ob es später eine Admin-UI oder nur eine Operator-Import-/Sync-Strecke für den Katalog geben soll.
 
 ### Audit-Aufbewahrung
 

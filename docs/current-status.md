@@ -1,20 +1,20 @@
 # Hermes Gatekeeper — Current Project Status
 
-Last updated: 2026-06-02
+Last updated: 2026-06-03
 Current branch: `main`
 Latest committed product slice: Phase 12 W2a `service.restart` compose-verified vertical slice
 
 ## Executive Summary
 
-Hermes Gatekeeper has a working backend MVP core through Phase 5, a session lifecycle/audit web UI through Phase 6, local admin cookie authentication through Phase 7, the Phase 8 generic SSH read-only connector with a local Compose demo target, and Phase 9 Agent API Authentication for request creation and session action execution:
+Hermes Gatekeeper has a working backend MVP core through Phase 5, a session lifecycle/audit web UI through Phase 6, local admin cookie authentication through Phase 7, the Phase 8 generic SSH connector with a local Compose demo target, Phase 9 Agent API Authentication for request creation and session action execution, and a validated in-progress Phase 12.x DB-first SSH action catalog in the current working tree:
 
 ```text
-Agent Authenticated Access Request -> Admin Login -> Approve/Deny -> Session -> Execute typed dummy or SSH read-only action -> Lifecycle controls in UI -> Audit browsing UI
+Agent Authenticated Access Request -> Admin Login -> Approve/Deny -> Session -> Resolve typed SSH action from DB catalog -> Execute action -> Lifecycle controls in UI -> Audit browsing UI
 ```
 
-The backend is implemented with .NET 10, ASP.NET Core/FastEndpoints, EF Core, SQLite, migrations, and integration tests. The frontend has a browser dashboard for listing requests, reviewing details, logging in as local admin, approving/denying, viewing session lifecycle state, running allowed dummy actions, and browsing audit events. Docker Compose can start the backend, frontend, and a controlled low-privilege `demo-ssh` target for local SSH connector validation.
+The backend is implemented with .NET 10, ASP.NET Core/FastEndpoints, EF Core, migrations, and integration tests. The current standard deployment path is PostgreSQL, while the Phase 12.x working tree has validated provider-neutral runtime behavior against both SQLite and PostgreSQL-backed tests. The frontend has a browser dashboard for listing requests, reviewing details, logging in as local admin, approving/denying, viewing session lifecycle state, running allowed dummy actions, and browsing audit events. Docker Compose can start PostgreSQL, the backend, frontend, and a controlled low-privilege `demo-ssh` target for local SSH connector validation.
 
-Phase 8 added the generic SSH read-only connector. Phase 9 hardens the machine-facing boundary by requiring `X-Gatekeeper-Agent-Key` on `POST /api/v1/access-requests` and `POST /api/v1/sessions/{sessionId}/actions`, resolving a non-secret `agentId`, and adding bounded failed-auth audit events plus successful `agentId`/`authMethod` attribution. Future agents should treat the backend action loop, lifecycle controls, audit API, lifecycle/audit UI, local admin login/session flow, SSH read-only connector, Agent API Authentication, and Compose SSH demo as implemented. Do not re-plan or rebuild Phases 0-9 unless the repository state contradicts this document.
+Phase 8 added the generic SSH connector. Phase 9 hardens the machine-facing boundary by requiring `X-Gatekeeper-Agent-Key` on `POST /api/v1/access-requests` and `POST /api/v1/sessions/{sessionId}/actions`, resolving a non-secret `agentId`, and adding bounded failed-auth audit events plus successful `agentId`/`authMethod` attribution. Phase 12.x replaces the SSH runtime source of truth with a normalized DB-first catalog for targets, profiles, actions, allowlisted parameters, and mutating/risk metadata. Future agents should treat the backend action loop, lifecycle controls, audit API, lifecycle/audit UI, local admin login/session flow, SSH connector, Agent API Authentication, Compose SSH demo, and the validated DB-first catalog working tree as the current truth. Do not re-plan or rebuild Phases 0-9 unless the repository state contradicts this document.
 
 ## Implemented and Committed
 
@@ -45,7 +45,7 @@ Implemented:
 - `AccessRequest` domain model.
 - `AccessRequestStatus` and `RiskLevel`.
 - `AuditEvent` domain model.
-- EF Core SQLite persistence and initial migration.
+- EF Core persistence and initial migration (originally introduced on SQLite; current standard deployment path is PostgreSQL).
 - API endpoints:
   - `POST /api/v1/access-requests`
   - `GET /api/v1/access-requests/{id}`
@@ -355,7 +355,7 @@ Latest committed slice before B5: `2a41127 feat: enrich ssh action audit details
 
 Implemented:
 
-- Server-side SSH connector configuration model for named targets, profiles, actions, timeouts, output limits, and allowlisted parameters.
+- Server-side SSH connector model originally started as configuration for named targets, profiles, actions, timeouts, output limits, and allowlisted parameters; the active Phase 12.x working tree moves that runtime source of truth into a normalized DB catalog.
 - Session action request shape now supports SSH execution with `target`, `action`, and `parameters` while retaining the older dummy `capability`/`payload` shape.
 - Approval grants target aliases plus capability profiles, for example `demo-ssh` and `remote.readonly.inspect`.
 - Execution validates that the approved target/profile permits the requested action before dispatch.

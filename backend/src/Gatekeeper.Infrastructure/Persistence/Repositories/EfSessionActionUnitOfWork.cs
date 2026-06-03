@@ -1,10 +1,8 @@
-using System.Globalization;
 using Gatekeeper.Application.Common;
 using Gatekeeper.Application.Sessions;
 using Gatekeeper.Core.AccessRequests;
 using Gatekeeper.Core.Sessions;
 using Gatekeeper.Infrastructure.Persistence.Entities;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace Gatekeeper.Infrastructure.Persistence.Repositories;
@@ -31,34 +29,48 @@ public sealed class EfSessionActionUnitOfWork : ISessionActionUnitOfWork
             cancellationToken
         );
 
-        int updatedRows = await _dbContext.Database.ExecuteSqlRawAsync(
-            """
-            UPDATE Sessions
-            SET ActionCount = ActionCount + 1
-            WHERE Id = @sessionId
-              AND Status = @activeStatus
-              AND ExpiresAt > @reservationTime
-              AND ActionCount < MaxActionCount
-            """,
-            [
-                new SqliteParameter
-                {
-                    ParameterName = "@sessionId",
-                    Value = ToSqliteGuid(sessionId),
-                },
-                new SqliteParameter
-                {
-                    ParameterName = "@activeStatus",
-                    Value = (int)SessionStatus.Active,
-                },
-                new SqliteParameter
-                {
-                    ParameterName = "@reservationTime",
-                    Value = ToSqliteDateTimeOffset(reservationTime),
-                },
-            ],
-            cancellationToken
-        );
+        SessionReservationSnapshot? snapshot = await _dbContext
+            .Sessions.Where(session => session.Id == sessionId)
+            .Select(session => new SessionReservationSnapshot(
+                session.Status,
+                session.ExpiresAt,
+                session.ActionCount,
+                session.MaxActionCount
+            ))
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (snapshot is null)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return false;
+        }
+
+        if (
+            snapshot.Status != SessionStatus.Active
+            || snapshot.ExpiresAt <= reservationTime
+            || snapshot.ActionCount >= snapshot.MaxActionCount
+        )
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return false;
+        }
+
+        int updatedRows = await _dbContext
+            .Sessions.Where(session =>
+                session.Id == sessionId
+                && session.Status == snapshot.Status
+                && session.ExpiresAt == snapshot.ExpiresAt
+                && session.ActionCount == snapshot.ActionCount
+                && session.MaxActionCount == snapshot.MaxActionCount
+            )
+            .ExecuteUpdateAsync(
+                setters =>
+                    setters.SetProperty(
+                        session => session.ActionCount,
+                        session => session.ActionCount + 1
+                    ),
+                cancellationToken
+            );
 
         if (updatedRows != 1)
         {
@@ -88,6 +100,13 @@ public sealed class EfSessionActionUnitOfWork : ISessionActionUnitOfWork
         }
     }
 
+    private sealed record SessionReservationSnapshot(
+        SessionStatus Status,
+        DateTimeOffset ExpiresAt,
+        int ActionCount,
+        int MaxActionCount
+    );
+
     private static AuditEventEntity ToEntity(AuditEvent auditEvent)
     {
         return new AuditEventEntity
@@ -98,17 +117,5 @@ public sealed class EfSessionActionUnitOfWork : ISessionActionUnitOfWork
             OccurredAt = auditEvent.OccurredAt,
             PayloadJson = auditEvent.PayloadJson,
         };
-    }
-
-    private static string ToSqliteDateTimeOffset(DateTimeOffset value)
-    {
-        return value
-            .ToUniversalTime()
-            .ToString("yyyy-MM-dd HH:mm:ss.FFFFFFFzzz", CultureInfo.InvariantCulture);
-    }
-
-    private static string ToSqliteGuid(Guid value)
-    {
-        return value.ToString("D").ToUpperInvariant();
     }
 }

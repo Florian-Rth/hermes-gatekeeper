@@ -13,17 +13,26 @@ public sealed partial class AddSessions : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
     {
+        string guidType =
+            migrationBuilder.ActiveProvider == "Npgsql.EntityFrameworkCore.PostgreSQL"
+                ? "uuid"
+                : "TEXT";
+        string dateTimeOffsetType =
+            migrationBuilder.ActiveProvider == "Npgsql.EntityFrameworkCore.PostgreSQL"
+                ? "timestamp with time zone"
+                : "TEXT";
+
         migrationBuilder.CreateTable(
             name: "Sessions",
             columns: table => new
             {
-                Id = table.Column<Guid>(type: "TEXT", nullable: false),
-                AccessRequestId = table.Column<Guid>(type: "TEXT", nullable: false),
+                Id = table.Column<Guid>(type: guidType, nullable: false),
+                AccessRequestId = table.Column<Guid>(type: guidType, nullable: false),
                 Status = table.Column<int>(type: "INTEGER", nullable: false),
                 AllowedTargetsJson = table.Column<string>(type: "TEXT", nullable: false),
                 AllowedCapabilitiesJson = table.Column<string>(type: "TEXT", nullable: false),
-                CreatedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
-                ExpiresAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
+                CreatedAt = table.Column<DateTimeOffset>(type: dateTimeOffsetType, nullable: false),
+                ExpiresAt = table.Column<DateTimeOffset>(type: dateTimeOffsetType, nullable: false),
             },
             constraints: table =>
             {

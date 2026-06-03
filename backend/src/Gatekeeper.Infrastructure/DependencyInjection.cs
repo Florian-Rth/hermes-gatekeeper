@@ -2,20 +2,24 @@ using Gatekeeper.Application.AccessRequests;
 using Gatekeeper.Application.AuditEvents;
 using Gatekeeper.Application.Sessions;
 using Gatekeeper.Core.AccessRequests;
+using Gatekeeper.Infrastructure.Catalog;
 using Gatekeeper.Infrastructure.Persistence;
 using Gatekeeper.Infrastructure.Persistence.Repositories;
 using Gatekeeper.Infrastructure.SessionActions;
 using Gatekeeper.Infrastructure.SessionActions.Ssh;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 
 namespace Gatekeeper.Infrastructure;
 
 public static class DependencyInjection
 {
     private const string DefaultSqliteDataPath = "/data/gatekeeper.db";
+    private const string DatabaseProviderConfigurationKey = "Gatekeeper:DatabaseProvider";
     private const string SessionMaxActionCountVariable = "GATEKEEPER_SESSION_MAX_ACTION_COUNT";
 
     public static IServiceCollection AddInfrastructure(
@@ -27,9 +31,12 @@ public static class DependencyInjection
         ArgumentNullException.ThrowIfNull(configuration);
 
         string connectionString = ResolveConnectionString(configuration);
-        EnsureSqliteDirectoryExists(connectionString);
+        GatekeeperDatabaseProvider databaseProvider = ResolveDatabaseProvider(
+            configuration,
+            connectionString
+        );
 
-        services.AddDbContext<GatekeeperDbContext>(options => options.UseSqlite(connectionString));
+        ConfigureDbContext(services, connectionString, databaseProvider);
         services.AddScoped<IAccessRequestRepository, EfAccessRequestRepository>();
         services.AddScoped<ISessionRepository, EfSessionRepository>();
         services.AddScoped<IAccessRequestUnitOfWork, EfAccessRequestUnitOfWork>();
@@ -40,8 +47,10 @@ public static class DependencyInjection
         services.AddScoped<ISessionService, SessionService>();
         services.AddScoped<ISessionActionService, SessionActionService>();
         services.AddScoped<ISessionActionAdapter, DummySessionActionAdapter>();
+        services.AddScoped<ISshApprovalCatalogValidator, DbSshApprovalCatalogValidator>();
+        services.AddScoped<SshCatalogBootstrapSeeder>();
         services.AddSingleton(BuildSshConnectorOptions(configuration));
-        services.AddSingleton<ISshActionPolicy, ConfiguredSshActionPolicy>();
+        services.AddScoped<ISshActionPolicy, DbSshActionPolicy>();
         services.AddSingleton<ISshCommandClient, SshNetCommandClient>();
         services.AddSingleton<ISshCommandExecutor, ConfiguredSshCommandExecutor>();
         services.AddSingleton(
@@ -52,6 +61,33 @@ public static class DependencyInjection
         );
 
         return services;
+    }
+
+    private static void ConfigureDbContext(
+        IServiceCollection services,
+        string connectionString,
+        GatekeeperDatabaseProvider databaseProvider
+    )
+    {
+        switch (databaseProvider)
+        {
+            case GatekeeperDatabaseProvider.PostgreSql:
+                services.AddDbContext<GatekeeperDbContext>(options =>
+                    options
+                        .UseNpgsql(connectionString)
+                        .ConfigureWarnings(warnings =>
+                            warnings.Ignore(RelationalEventId.PendingModelChangesWarning)
+                        )
+                );
+                break;
+            case GatekeeperDatabaseProvider.Sqlite:
+            default:
+                EnsureSqliteDirectoryExists(connectionString);
+                services.AddDbContext<GatekeeperDbContext>(options =>
+                    options.UseSqlite(connectionString)
+                );
+                break;
+        }
     }
 
     private static SshConnectorOptions BuildSshConnectorOptions(IConfiguration configuration)
@@ -201,6 +237,28 @@ public static class DependencyInjection
 
     private static string ResolveConnectionString(IConfiguration configuration)
     {
+        if (
+            Enum.TryParse(
+                configuration[DatabaseProviderConfigurationKey],
+                ignoreCase: true,
+                out GatekeeperDatabaseProvider configuredProvider
+            )
+            && configuredProvider == GatekeeperDatabaseProvider.PostgreSql
+        )
+        {
+            string? configuredPostgreSqlConnectionString = configuration.GetConnectionString(
+                "Gatekeeper"
+            );
+            if (string.IsNullOrWhiteSpace(configuredPostgreSqlConnectionString))
+            {
+                throw new InvalidOperationException(
+                    "Gatekeeper database provider is configured as PostgreSql, but ConnectionStrings:Gatekeeper is missing."
+                );
+            }
+
+            return configuredPostgreSqlConnectionString;
+        }
+
         string? configuredConnectionString = configuration.GetConnectionString("Gatekeeper");
         if (!string.IsNullOrWhiteSpace(configuredConnectionString))
         {
@@ -215,6 +273,55 @@ public static class DependencyInjection
             : configuredDataPath;
 
         return new SqliteConnectionStringBuilder { DataSource = dataPath }.ToString();
+    }
+
+    private static GatekeeperDatabaseProvider ResolveDatabaseProvider(
+        IConfiguration configuration,
+        string connectionString
+    )
+    {
+        string? configuredProviderText = configuration[DatabaseProviderConfigurationKey];
+        if (
+            !string.IsNullOrWhiteSpace(configuredProviderText)
+            && !Enum.TryParse(
+                configuredProviderText,
+                ignoreCase: true,
+                out GatekeeperDatabaseProvider _
+            )
+        )
+        {
+            throw new InvalidOperationException(
+                $"Unsupported Gatekeeper database provider '{configuredProviderText}'."
+            );
+        }
+
+        if (
+            Enum.TryParse(
+                configuredProviderText,
+                ignoreCase: true,
+                out GatekeeperDatabaseProvider configuredProvider
+            )
+        )
+        {
+            return configuredProvider;
+        }
+
+        return LooksLikePostgreSqlConnectionString(connectionString)
+            ? GatekeeperDatabaseProvider.PostgreSql
+            : GatekeeperDatabaseProvider.Sqlite;
+    }
+
+    private static bool LooksLikePostgreSqlConnectionString(string connectionString)
+    {
+        try
+        {
+            _ = new NpgsqlConnectionStringBuilder(connectionString);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 
     private static void EnsureSqliteDirectoryExists(string connectionString)
@@ -237,5 +344,11 @@ public static class DependencyInjection
         }
         catch (UnauthorizedAccessException) { }
         catch (IOException) { }
+    }
+
+    private enum GatekeeperDatabaseProvider
+    {
+        Sqlite,
+        PostgreSql,
     }
 }

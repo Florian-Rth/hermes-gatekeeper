@@ -13,11 +13,14 @@ public sealed partial class InitialCreate : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
     {
+        string guidType = GetGuidColumnType(migrationBuilder.ActiveProvider);
+        string dateTimeOffsetType = GetDateTimeOffsetColumnType(migrationBuilder.ActiveProvider);
+
         migrationBuilder.CreateTable(
             name: "AccessRequests",
             columns: table => new
             {
-                Id = table.Column<Guid>(type: "TEXT", nullable: false),
+                Id = table.Column<Guid>(type: guidType, nullable: false),
                 Intent = table.Column<string>(type: "TEXT", maxLength: 500, nullable: false),
                 Requester = table.Column<string>(type: "TEXT", maxLength: 200, nullable: false),
                 TargetsJson = table.Column<string>(type: "TEXT", nullable: false),
@@ -29,8 +32,8 @@ public sealed partial class InitialCreate : Migration
                 ForbiddenActionsJson = table.Column<string>(type: "TEXT", nullable: false),
                 MetadataJson = table.Column<string>(type: "TEXT", nullable: false),
                 Status = table.Column<int>(type: "INTEGER", nullable: false),
-                CreatedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
-                UpdatedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
+                CreatedAt = table.Column<DateTimeOffset>(type: dateTimeOffsetType, nullable: false),
+                UpdatedAt = table.Column<DateTimeOffset>(type: dateTimeOffsetType, nullable: false),
             },
             constraints: table =>
             {
@@ -42,10 +45,13 @@ public sealed partial class InitialCreate : Migration
             name: "AuditEvents",
             columns: table => new
             {
-                Id = table.Column<Guid>(type: "TEXT", nullable: false),
+                Id = table.Column<Guid>(type: guidType, nullable: false),
                 EventType = table.Column<string>(type: "TEXT", maxLength: 200, nullable: false),
-                AggregateId = table.Column<Guid>(type: "TEXT", nullable: true),
-                OccurredAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
+                AggregateId = table.Column<Guid>(type: guidType, nullable: true),
+                OccurredAt = table.Column<DateTimeOffset>(
+                    type: dateTimeOffsetType,
+                    nullable: false
+                ),
                 PayloadJson = table.Column<string>(type: "TEXT", nullable: false),
             },
             constraints: table =>
@@ -83,5 +89,17 @@ public sealed partial class InitialCreate : Migration
     {
         migrationBuilder.DropTable(name: "AccessRequests");
         migrationBuilder.DropTable(name: "AuditEvents");
+    }
+
+    private static string GetGuidColumnType(string activeProvider)
+    {
+        return activeProvider == "Npgsql.EntityFrameworkCore.PostgreSQL" ? "uuid" : "TEXT";
+    }
+
+    private static string GetDateTimeOffsetColumnType(string activeProvider)
+    {
+        return activeProvider == "Npgsql.EntityFrameworkCore.PostgreSQL"
+            ? "timestamp with time zone"
+            : "TEXT";
     }
 }

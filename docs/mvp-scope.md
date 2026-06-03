@@ -53,7 +53,7 @@ Nicht Ziel des MVP: spezielle HomeLab-Integrationen wie Home Assistant, Docker, 
 - Zod
 - Biome
 - Vitest
-- EF Core + SQLite + Migrations
+- EF Core + Migrations; aktueller Standard-Deploypfad ist PostgreSQL, SQLite bleibt Fallback/Testpfad
 - Docker Compose
 - lokale Admin-Auth per ENV-seeded Admin
 - statischer Agent Client Token per ENV
@@ -195,7 +195,7 @@ MVP Audit Events:
 - AdminLoginSucceeded
 - AdminLoginFailed
 
-Speicherung zunächst in SQLite. Optional zusätzlich JSONL später.
+Speicherung im aktuellen Standard-Deploypfad in PostgreSQL. Optional zusätzlich JSONL später; SQLite bleibt nur Fallback/Testpfad.
 
 ## Nicht im MVP
 

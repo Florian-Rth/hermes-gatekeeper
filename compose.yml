@@ -1,13 +1,37 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${GATEKEEPER_DB_NAME:-gatekeeper}
+      POSTGRES_USER: ${GATEKEEPER_DB_USER:-gatekeeper}
+      POSTGRES_PASSWORD: ${GATEKEEPER_DB_PASSWORD:-gatekeeper-dev-password-local-only}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${GATEKEEPER_DB_USER:-gatekeeper} -d ${GATEKEEPER_DB_NAME:-gatekeeper}"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
   backend:
     build:
       context: ./backend
       dockerfile: src/Gatekeeper.Api/Dockerfile
     depends_on:
-      - demo-ssh
+      postgres:
+        condition: service_healthy
+      demo-ssh:
+        condition: service_started
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
+      Gatekeeper__DatabaseProvider: PostgreSql
+      ConnectionStrings__Gatekeeper: Host=postgres;Port=5432;Database=${GATEKEEPER_DB_NAME:-gatekeeper};Username=${GATEKEEPER_DB_USER:-gatekeeper};Password=${GATEKEEPER_DB_PASSWORD:-gatekeeper-dev-password-local-only};Include Error Detail=false
       GATEKEEPER_ADMIN_USERNAME: ${GATEKEEPER_ADMIN_USERNAME:-admin}
       GATEKEEPER_ADMIN_PASSWORD: ${GATEKEEPER_ADMIN_PASSWORD:-dev-admin-password-local-only}
       GATEKEEPER_ADMIN_COOKIE_SECURE: ${GATEKEEPER_ADMIN_COOKIE_SECURE:-false}
@@ -15,7 +39,6 @@ services:
       AgentAuthentication__Enabled: ${GATEKEEPER_AGENT_AUTH_ENABLED:-true}
       AgentAuthentication__ApiKeys__0__AgentId: ${GATEKEEPER_AGENT_AUTH_DEMO_AGENT_ID:-compose-demo-agent}
       AgentAuthentication__ApiKeys__0__Key: ${GATEKEEPER_AGENT_AUTH_DEMO_KEY:-dev-compose-agent-key-local-only}
-      GATEKEEPER_SQLITE_DATA_PATH: ${GATEKEEPER_SQLITE_DATA_PATH:-/data/gatekeeper.db}
     ports:
       - "5209:8080"
     volumes:
@@ -37,3 +60,6 @@ services:
       dockerfile: Dockerfile
     expose:
       - "22"
+
+volumes:
+  postgres-data:

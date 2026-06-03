@@ -26,7 +26,7 @@ Der Kern soll generisch bleiben:
 - API Framework: FastEndpoints
 - Frontend: React / Vite
 - Deployment: Docker / Docker Compose
-- Datenbank: SQLite für MVP, Postgres optional später
+- Datenbank: EF Core mit PostgreSQL als Compose-/Produktionspfad; SQLite bleibt nur als provider-neutraler Fallback für lokale Sonderfälle und Tests
 - Auth MVP: lokale Admin-Auth
 
 ## Aktueller Status
@@ -58,9 +58,9 @@ Als nächste konkrete Produktphase folgt jetzt entweder `container.restart` auf 
 
 Implementiert sind:
 
-- `backend/`: .NET-10-Solution mit ASP.NET Core/FastEndpoints, EF Core, SQLite und Migrations
+- `backend/`: .NET-10-Solution mit ASP.NET Core/FastEndpoints, EF Core, PostgreSQL/SQLite-provider-neutraler Persistenz und Migrations
 - `frontend/`: React/Vite-App mit Admin-Login, Approval-Dashboard, Session Lifecycle Controls, Audit Feed und pnpm-Skripten für Check, Test und Build
-- Docker-Compose-Baseline für lokale Demo-/Dev-Starts inklusive kontrolliertem `demo-ssh` Target und demo-only Agent-Auth-Konfiguration
+- Docker-Compose-Baseline für lokale Demo-/Dev-Starts inklusive PostgreSQL-Service, kontrolliertem `demo-ssh` Target und demo-only Agent-Auth-Konfiguration
 - Access-Request-API:
   - `POST /api/v1/access-requests`
   - `GET /api/v1/access-requests/{id}`
@@ -153,7 +153,16 @@ Beispielwerte stehen in `.env.example`. Für lokale Anpassungen kann die Datei k
 cp .env.example .env
 ```
 
-Die Beispielwerte sind bewusst keine Secrets und nur für lokale Entwicklung gedacht. Für lokale HTTP-Compose-Demos setzt die Beispielkonfiguration `GATEKEEPER_ADMIN_COOKIE_SECURE=false`; produktionsähnliche Deployments sollen Secure-Cookies verwenden. Dasselbe gilt für die Demo-Agent-Auth-Werte `GATEKEEPER_AGENT_AUTH_DEMO_AGENT_ID` und `GATEKEEPER_AGENT_AUTH_DEMO_KEY`.
+Die Beispielwerte sind bewusst keine Secrets und nur für lokale Entwicklung gedacht. Für lokale HTTP-Compose-Demos setzt die Beispielkonfiguration `GATEKEEPER_ADMIN_COOKIE_SECURE=false`; produktionsähnliche Deployments sollen Secure-Cookies verwenden. Dasselbe gilt für die Demo-Agent-Auth-Werte `GATEKEEPER_AGENT_AUTH_DEMO_AGENT_ID` und `GATEKEEPER_AGENT_AUTH_DEMO_KEY`. Die Compose-Baseline nutzt jetzt außerdem PostgreSQL über `GATEKEEPER_DB_NAME`, `GATEKEEPER_DB_USER` und `GATEKEEPER_DB_PASSWORD`.
+
+Für Nicht-Compose-/Produktionsstarts gilt explizit:
+
+```bash
+Gatekeeper__DatabaseProvider=PostgreSql
+ConnectionStrings__Gatekeeper='Host=<db-host>;Port=5432;Database=<db-name>;Username=<db-user>;Password=<db-password>'
+```
+
+Wenn `Gatekeeper__DatabaseProvider=PostgreSql` gesetzt ist, startet die App absichtlich nicht ohne `ConnectionStrings__Gatekeeper`.
 
 Compose validieren, Images bauen und Services starten:
 
@@ -168,9 +177,16 @@ Ports der Compose-Baseline:
 - Backend API: `http://localhost:5209`
 - Backend Health: `http://localhost:5209/health`
 - Frontend: `http://localhost:5173`
+- PostgreSQL: interner Compose-Service `postgres` auf Port 5432, nicht auf den Host veröffentlicht
 - Demo SSH target: interner Compose-Service `demo-ssh` auf Port 22, nicht auf den Host veröffentlicht
 
 Die Compose-Demo konfiguriert zusätzlich eine lokale Demo-Agent-Auth für `X-Gatekeeper-Agent-Key` und den Backend-Connector für `demo-ssh` mit den lokalen Profilen `remote.readonly.inspect` und `remote.maintenance.basic`. Der vollständige Request -> Approve -> Execute -> Audit Ablauf für Read-only sowie die Maintenance-Smokes `service.restart`, `service.reload` und `backup.trigger` steht in `docs/phase-8-compose-ssh-demo.md`.
+
+Für eine frische lokale Demo-Datenbank inklusive neuem DB-first-Katalog kann das persistente Compose-Volume bewusst verworfen werden:
+
+```bash
+docker compose down -v
+```
 
 ## Dokumente
 

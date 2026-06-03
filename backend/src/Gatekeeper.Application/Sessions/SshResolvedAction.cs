@@ -14,6 +14,37 @@ public sealed class SshResolvedAction
         bool isMutating,
         RiskLevel risk
     )
+        : this(
+            targetAlias,
+            actionName,
+            command,
+            safeParameters,
+            timeout,
+            outputLimitBytes,
+            isMutating,
+            risk,
+            host: string.Empty,
+            port: 0,
+            username: string.Empty,
+            privateKeyPath: string.Empty,
+            knownHostsPath: string.Empty
+        ) { }
+
+    public SshResolvedAction(
+        string targetAlias,
+        string actionName,
+        IReadOnlyList<string> command,
+        IReadOnlyDictionary<string, string> safeParameters,
+        TimeSpan timeout,
+        int outputLimitBytes,
+        bool isMutating,
+        RiskLevel risk,
+        string host,
+        int port,
+        string username,
+        string privateKeyPath,
+        string knownHostsPath
+    )
     {
         TargetAlias = targetAlias;
         ActionName = actionName;
@@ -23,6 +54,11 @@ public sealed class SshResolvedAction
         OutputLimitBytes = outputLimitBytes;
         IsMutating = isMutating;
         Risk = risk;
+        Host = host;
+        Port = port;
+        Username = username;
+        PrivateKeyPath = privateKeyPath;
+        KnownHostsPath = knownHostsPath;
     }
 
     public string TargetAlias { get; }
@@ -40,4 +76,14 @@ public sealed class SshResolvedAction
     public bool IsMutating { get; }
 
     public RiskLevel Risk { get; }
+
+    public string Host { get; }
+
+    public int Port { get; }
+
+    public string Username { get; }
+
+    public string PrivateKeyPath { get; }
+
+    public string KnownHostsPath { get; }
 }

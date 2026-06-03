@@ -6,7 +6,7 @@
 
 **Architecture:** Extend the existing SSH target/profile/action model instead of introducing a second execution path. Mutating actions must stay server-side configured, separately profiled, tightly allowlisted, and explicitly visible in audit/results.
 
-**Tech Stack:** C#/.NET 10, ASP.NET Core/FastEndpoints, Clean Architecture, EF Core/SQLite, xUnit v3, ASP.NET Options, Docker Compose, SSH.NET-based connector.
+**Tech Stack:** C#/.NET 10, ASP.NET Core/FastEndpoints, Clean Architecture, EF Core with provider-neutral SQLite/PostgreSQL support, xUnit v3, ASP.NET Options, Docker Compose, SSH.NET-based connector.
 
 ---
 
@@ -263,6 +263,21 @@ Expected outputs:
 - README short supported-actions section updated.
 - `docs/current-status.md` canonical supported-actions section updated.
 - Compose/demo docs updated if the local demo target gains a safe-write action.
+
+## Planned Follow-up Architecture Phase
+
+The current safe-write slices may continue on the existing config-backed action catalog, but further catalog breadth should not stay permanently config-first.
+
+Follow-up plan:
+
+- `docs/phase-12x-db-first-action-catalog.md`
+
+Core follow-up decisions:
+
+- DB-first action catalog as the long-term source of truth.
+- Seed/import file allowed for bootstrap simplicity.
+- Live-resolve against the current DB definition during action execution.
+- Sessions continue to store grants, not full action snapshots.
 
 ## Validation Gates
 

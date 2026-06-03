@@ -210,6 +210,43 @@ public sealed class SshCommandExecutorTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_Should_UseResolvedConnectionData_When_ConfigTargetIsMissing()
+    {
+        var client = new FakeSshCommandClient(
+            SshCommandClientResult.Completed(0, string.Empty, string.Empty)
+        );
+        ConfiguredSshCommandExecutor executor = new(new SshConnectorOptions(), client);
+        SshResolvedAction resolvedAction = new(
+            "db-only-target",
+            "system.status.read",
+            new[] { "uname", "-a" },
+            new Dictionary<string, string>(StringComparer.Ordinal),
+            TimeSpan.FromSeconds(5),
+            32,
+            false,
+            RiskLevel.Low,
+            host: "db-only-host",
+            port: 2201,
+            username: "db-user",
+            privateKeyPath: "/run/secrets/db-key",
+            knownHostsPath: "/run/secrets/db-known-hosts"
+        );
+
+        SshCommandExecutionResult result = await executor.ExecuteAsync(
+            resolvedAction,
+            TestContext.Current.CancellationToken
+        );
+
+        Assert.True(result.Succeeded);
+        Assert.NotNull(client.LastRequest);
+        Assert.Equal("db-only-host", client.LastRequest.Host);
+        Assert.Equal(2201, client.LastRequest.Port);
+        Assert.Equal("db-user", client.LastRequest.Username);
+        Assert.Equal("/run/secrets/db-key", client.LastRequest.PrivateKeyPath);
+        Assert.Equal("/run/secrets/db-known-hosts", client.LastRequest.KnownHostsPath);
+    }
+
+    [Fact]
     public void IsKnownHostTrusted_Should_AcceptMatchingKnownHostsEntry()
     {
         byte[] hostKey = Convert.FromBase64String("AQIDBAU=");

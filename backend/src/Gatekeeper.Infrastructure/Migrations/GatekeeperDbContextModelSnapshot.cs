@@ -149,5 +149,273 @@ public sealed partial class GatekeeperDbContextModelSnapshot : ModelSnapshot
                 entity.ToTable("Sessions", (string)null);
             }
         );
+
+        modelBuilder.Entity(
+            "Gatekeeper.Infrastructure.Persistence.Entities.SshActionAllowedParameterEntity",
+            entity =>
+            {
+                entity.Property<Guid>("Id").HasColumnType("TEXT");
+
+                entity.Property<Guid>("ActionId").HasColumnType("TEXT");
+
+                entity
+                    .Property<string>("Name")
+                    .IsRequired()
+                    .HasMaxLength(200)
+                    .HasColumnType("TEXT");
+
+                entity.HasKey("Id");
+
+                entity.HasIndex("ActionId", "Name").IsUnique();
+
+                entity.ToTable("SshActionAllowedParameters", (string)null);
+            }
+        );
+
+        modelBuilder.Entity(
+            "Gatekeeper.Infrastructure.Persistence.Entities.SshActionAllowedParameterValueEntity",
+            entity =>
+            {
+                entity.Property<Guid>("Id").HasColumnType("TEXT");
+
+                entity.Property<Guid>("AllowedParameterId").HasColumnType("TEXT");
+
+                entity
+                    .Property<string>("Value")
+                    .IsRequired()
+                    .HasMaxLength(500)
+                    .HasColumnType("TEXT");
+
+                entity.HasKey("Id");
+
+                entity.HasIndex("AllowedParameterId", "Value").IsUnique();
+
+                entity.ToTable("SshActionAllowedParameterValues", (string)null);
+            }
+        );
+
+        modelBuilder.Entity(
+            "Gatekeeper.Infrastructure.Persistence.Entities.SshActionEntity",
+            entity =>
+            {
+                entity.Property<Guid>("Id").HasColumnType("TEXT");
+
+                entity.Property<string>("CommandJson").IsRequired().HasColumnType("TEXT");
+
+                entity.Property<string>("CommandTemplateJson").IsRequired().HasColumnType("TEXT");
+
+                entity.Property<bool>("IsMutating").HasColumnType("INTEGER");
+
+                entity
+                    .Property<string>("Name")
+                    .IsRequired()
+                    .HasMaxLength(200)
+                    .HasColumnType("TEXT");
+
+                entity.Property<int?>("OutputLimitBytes").HasColumnType("INTEGER");
+
+                entity.Property<RiskLevel>("Risk").HasColumnType("INTEGER");
+
+                entity.Property<Guid>("TargetId").HasColumnType("TEXT");
+
+                entity.Property<int?>("TimeoutSeconds").HasColumnType("INTEGER");
+
+                entity.HasKey("Id");
+
+                entity.HasIndex("TargetId", "Name").IsUnique();
+
+                entity.ToTable("SshActions", (string)null);
+            }
+        );
+
+        modelBuilder.Entity(
+            "Gatekeeper.Infrastructure.Persistence.Entities.SshProfileActionEntity",
+            entity =>
+            {
+                entity.Property<Guid>("ProfileId").HasColumnType("TEXT");
+
+                entity.Property<Guid>("ActionId").HasColumnType("TEXT");
+
+                entity.HasKey("ProfileId", "ActionId");
+
+                entity.HasIndex("ActionId");
+
+                entity.ToTable("SshProfileActions", (string)null);
+            }
+        );
+
+        modelBuilder.Entity(
+            "Gatekeeper.Infrastructure.Persistence.Entities.SshProfileEntity",
+            entity =>
+            {
+                entity.Property<Guid>("Id").HasColumnType("TEXT");
+
+                entity
+                    .Property<string>("Name")
+                    .IsRequired()
+                    .HasMaxLength(200)
+                    .HasColumnType("TEXT");
+
+                entity.Property<Guid>("TargetId").HasColumnType("TEXT");
+
+                entity.HasKey("Id");
+
+                entity.HasIndex("TargetId", "Name").IsUnique();
+
+                entity.ToTable("SshProfiles", (string)null);
+            }
+        );
+
+        modelBuilder.Entity(
+            "Gatekeeper.Infrastructure.Persistence.Entities.SshTargetEntity",
+            entity =>
+            {
+                entity.Property<Guid>("Id").HasColumnType("TEXT");
+
+                entity
+                    .Property<string>("Alias")
+                    .IsRequired()
+                    .HasMaxLength(200)
+                    .HasColumnType("TEXT");
+
+                entity.Property<int>("DefaultOutputLimitBytes").HasColumnType("INTEGER");
+
+                entity.Property<int>("DefaultTimeoutSeconds").HasColumnType("INTEGER");
+
+                entity
+                    .Property<string>("Host")
+                    .IsRequired()
+                    .HasMaxLength(500)
+                    .HasColumnType("TEXT");
+
+                entity
+                    .Property<string>("KnownHostsPath")
+                    .IsRequired()
+                    .HasMaxLength(1000)
+                    .HasColumnType("TEXT");
+
+                entity.Property<int>("Port").HasColumnType("INTEGER");
+
+                entity
+                    .Property<string>("PrivateKeyPath")
+                    .IsRequired()
+                    .HasMaxLength(1000)
+                    .HasColumnType("TEXT");
+
+                entity
+                    .Property<string>("Username")
+                    .IsRequired()
+                    .HasMaxLength(200)
+                    .HasColumnType("TEXT");
+
+                entity.HasKey("Id");
+
+                entity.HasIndex("Alias").IsUnique();
+
+                entity.ToTable("SshTargets", (string)null);
+            }
+        );
+
+        modelBuilder.Entity(
+            "Gatekeeper.Infrastructure.Persistence.Entities.SshActionAllowedParameterEntity",
+            entity =>
+            {
+                entity
+                    .HasOne(
+                        "Gatekeeper.Infrastructure.Persistence.Entities.SshActionEntity",
+                        "Action"
+                    )
+                    .WithMany("AllowedParameters")
+                    .HasForeignKey("ActionId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                entity.Navigation("Action");
+            }
+        );
+
+        modelBuilder.Entity(
+            "Gatekeeper.Infrastructure.Persistence.Entities.SshActionAllowedParameterValueEntity",
+            entity =>
+            {
+                entity
+                    .HasOne(
+                        "Gatekeeper.Infrastructure.Persistence.Entities.SshActionAllowedParameterEntity",
+                        "AllowedParameter"
+                    )
+                    .WithMany("AllowedValues")
+                    .HasForeignKey("AllowedParameterId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                entity.Navigation("AllowedParameter");
+            }
+        );
+
+        modelBuilder.Entity(
+            "Gatekeeper.Infrastructure.Persistence.Entities.SshActionEntity",
+            entity =>
+            {
+                entity
+                    .HasOne(
+                        "Gatekeeper.Infrastructure.Persistence.Entities.SshTargetEntity",
+                        "Target"
+                    )
+                    .WithMany("Actions")
+                    .HasForeignKey("TargetId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                entity.Navigation("Target");
+            }
+        );
+
+        modelBuilder.Entity(
+            "Gatekeeper.Infrastructure.Persistence.Entities.SshProfileActionEntity",
+            entity =>
+            {
+                entity
+                    .HasOne(
+                        "Gatekeeper.Infrastructure.Persistence.Entities.SshActionEntity",
+                        "Action"
+                    )
+                    .WithMany("ProfileActions")
+                    .HasForeignKey("ActionId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                entity
+                    .HasOne(
+                        "Gatekeeper.Infrastructure.Persistence.Entities.SshProfileEntity",
+                        "Profile"
+                    )
+                    .WithMany("ProfileActions")
+                    .HasForeignKey("ProfileId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                entity.Navigation("Action");
+
+                entity.Navigation("Profile");
+            }
+        );
+
+        modelBuilder.Entity(
+            "Gatekeeper.Infrastructure.Persistence.Entities.SshProfileEntity",
+            entity =>
+            {
+                entity
+                    .HasOne(
+                        "Gatekeeper.Infrastructure.Persistence.Entities.SshTargetEntity",
+                        "Target"
+                    )
+                    .WithMany("Profiles")
+                    .HasForeignKey("TargetId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                entity.Navigation("Target");
+            }
+        );
     }
 }
