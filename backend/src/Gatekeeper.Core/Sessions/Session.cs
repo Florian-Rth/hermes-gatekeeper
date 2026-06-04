@@ -1,4 +1,3 @@
-using System.Linq;
 using Gatekeeper.Core.AccessRequests;
 
 namespace Gatekeeper.Core.Sessions;
@@ -68,10 +67,12 @@ public sealed class Session
     public static Session CreateFromApprovedAccessRequest(
         AccessRequest request,
         DateTimeOffset now,
-        int maxActionCount
+        int maxActionCount,
+        IReadOnlyList<SshProfileGrant> sshProfileGrants
     )
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(sshProfileGrants);
 
         if (request.Status != AccessRequestStatus.Approved)
         {
@@ -88,7 +89,7 @@ public sealed class Session
             SessionStatus.Active,
             request.Targets,
             request.RequestedCapabilities,
-            CreateSshProfileGrants(request),
+            sshProfileGrants,
             now,
             now.AddMinutes(request.DurationMinutes),
             0,
@@ -101,7 +102,7 @@ public sealed class Session
 
     public static Session CreateFromApprovedAccessRequest(AccessRequest request, DateTimeOffset now)
     {
-        return CreateFromApprovedAccessRequest(request, now, DefaultMaxActionCount);
+        return CreateFromApprovedAccessRequest(request, now, DefaultMaxActionCount, []);
     }
 
     public static Session Load(
@@ -396,25 +397,5 @@ public sealed class Session
 
                 break;
         }
-    }
-
-    private static IReadOnlyList<SshProfileGrant> CreateSshProfileGrants(AccessRequest request)
-    {
-        if (request.Targets.Count != 1)
-        {
-            return [];
-        }
-
-        string targetAlias = request.Targets[0];
-        return request
-            .RequestedCapabilities.Where(IsSshProfileCapability)
-            .Select(capability => new SshProfileGrant(targetAlias, capability))
-            .ToArray();
-    }
-
-    private static bool IsSshProfileCapability(string capability)
-    {
-        return capability.StartsWith("ssh.", StringComparison.Ordinal)
-            || capability.StartsWith("remote.", StringComparison.Ordinal);
     }
 }

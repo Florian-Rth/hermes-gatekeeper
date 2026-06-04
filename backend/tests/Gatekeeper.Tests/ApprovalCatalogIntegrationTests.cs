@@ -12,7 +12,7 @@ namespace Gatekeeper.Tests;
 public sealed class ApprovalCatalogIntegrationTests
 {
     [Fact]
-    public async Task ApproveAsync_RejectsUnknownCatalogTarget()
+    public async Task ApproveAsync_CreatesSessionWithNoGrants_When_TargetIsNotInCatalog()
     {
         await using PostgresGatekeeperDatabase database = new();
         await database.InitializeAsync(TestContext.Current.CancellationToken);
@@ -23,8 +23,8 @@ public sealed class ApprovalCatalogIntegrationTests
         await using AsyncServiceScope scope = factory.Services.CreateAsyncScope();
         IAccessRequestService service =
             scope.ServiceProvider.GetRequiredService<IAccessRequestService>();
-        GatekeeperDbContext dbContext =
-            scope.ServiceProvider.GetRequiredService<GatekeeperDbContext>();
+        ISessionRepository sessionRepository =
+            scope.ServiceProvider.GetRequiredService<ISessionRepository>();
 
         AccessRequestDetails created = await service.CreateAsync(
             new CreateAccessRequestCommand(
@@ -47,13 +47,18 @@ public sealed class ApprovalCatalogIntegrationTests
             TestContext.Current.CancellationToken
         );
 
-        Assert.True(result.Conflict);
-        Assert.Null(result.Session);
-        Assert.Equal(0, await dbContext.Sessions.CountAsync(TestContext.Current.CancellationToken));
+        Assert.True(result.Success);
+        Assert.NotNull(result.Session);
+        Session persistedSession =
+            await sessionRepository.GetByIdAsync(
+                result.Session!.Id,
+                TestContext.Current.CancellationToken
+            ) ?? throw new Xunit.Sdk.XunitException("Expected persisted session.");
+        Assert.Empty(persistedSession.SshProfileGrants);
     }
 
     [Fact]
-    public async Task ApproveAsync_RejectsUnknownCatalogProfileForKnownTarget()
+    public async Task ApproveAsync_CreatesSessionWithNoGrants_When_ProfileIsNotInCatalog()
     {
         await using PostgresGatekeeperDatabase database = new();
         await database.InitializeAsync(TestContext.Current.CancellationToken);
@@ -64,8 +69,8 @@ public sealed class ApprovalCatalogIntegrationTests
         await using AsyncServiceScope scope = factory.Services.CreateAsyncScope();
         IAccessRequestService service =
             scope.ServiceProvider.GetRequiredService<IAccessRequestService>();
-        GatekeeperDbContext dbContext =
-            scope.ServiceProvider.GetRequiredService<GatekeeperDbContext>();
+        ISessionRepository sessionRepository =
+            scope.ServiceProvider.GetRequiredService<ISessionRepository>();
 
         AccessRequestDetails created = await service.CreateAsync(
             new CreateAccessRequestCommand(
@@ -88,9 +93,14 @@ public sealed class ApprovalCatalogIntegrationTests
             TestContext.Current.CancellationToken
         );
 
-        Assert.True(result.Conflict);
-        Assert.Null(result.Session);
-        Assert.Equal(0, await dbContext.Sessions.CountAsync(TestContext.Current.CancellationToken));
+        Assert.True(result.Success);
+        Assert.NotNull(result.Session);
+        Session persistedSession =
+            await sessionRepository.GetByIdAsync(
+                result.Session!.Id,
+                TestContext.Current.CancellationToken
+            ) ?? throw new Xunit.Sdk.XunitException("Expected persisted session.");
+        Assert.Empty(persistedSession.SshProfileGrants);
     }
 
     [Fact]

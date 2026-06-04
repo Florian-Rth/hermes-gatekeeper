@@ -1,5 +1,6 @@
 using Gatekeeper.Application.AccessRequests;
 using Gatekeeper.Application.Common;
+using Gatekeeper.Application.Sessions;
 using Gatekeeper.Core.AccessRequests;
 using Gatekeeper.Core.Sessions;
 using Gatekeeper.Infrastructure.Persistence;
@@ -163,7 +164,10 @@ public sealed class EfSqlitePersistenceTests
                 new EfSessionRepository(approveContext),
                 new EfAccessRequestUnitOfWork(approveContext),
                 new EfAuditEventRepository(approveContext),
-                new FixedClock(approvedAt)
+                new FixedClock(approvedAt),
+                sshApprovalCatalogValidator: new FixedGrantResolver([
+                    new SshProfileGrant("prod-api", "ssh.read"),
+                ])
             );
 
             result = await service.ApproveAsync(
@@ -311,7 +315,9 @@ public sealed class EfSqlitePersistenceTests
         );
         var session = Session.CreateFromApprovedAccessRequest(
             request.Approve(createdAt),
-            createdAt
+            createdAt,
+            Session.DefaultMaxActionCount,
+            [new SshProfileGrant("prod-api", "ssh.read")]
         );
 
         await using (GatekeeperDbContext writeContext = new GatekeeperDbContext(options))
@@ -814,5 +820,23 @@ public sealed class EfSqlitePersistenceTests
         }
 
         public DateTimeOffset UtcNow => _utcNow;
+    }
+
+    private sealed class FixedGrantResolver : ISshApprovalCatalogValidator
+    {
+        private readonly IReadOnlyList<SshProfileGrant> _grants;
+
+        public FixedGrantResolver(IReadOnlyList<SshProfileGrant> grants)
+        {
+            _grants = grants;
+        }
+
+        public Task<IReadOnlyList<SshProfileGrant>> ResolveGrantsAsync(
+            AccessRequest request,
+            CancellationToken cancellationToken
+        )
+        {
+            return Task.FromResult(_grants);
+        }
     }
 }

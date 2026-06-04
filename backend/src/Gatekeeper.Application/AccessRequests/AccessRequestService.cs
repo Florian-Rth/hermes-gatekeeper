@@ -102,21 +102,16 @@ public sealed class AccessRequestService : IAccessRequestService
 
         var now = _clock.UtcNow;
         var approved = accessRequest.Approve(now);
-        if (
-            _sshApprovalCatalogValidator is not null
-            && !await _sshApprovalCatalogValidator.CanCreateSessionForApprovedRequestAsync(
-                approved,
-                cancellationToken
-            )
-        )
-        {
-            return ApprovalResult.Conflicted();
-        }
+
+        IReadOnlyList<SshProfileGrant> sshGrants = _sshApprovalCatalogValidator is not null
+            ? await _sshApprovalCatalogValidator.ResolveGrantsAsync(approved, cancellationToken)
+            : [];
 
         var session = Session.CreateFromApprovedAccessRequest(
             approved,
             now,
-            _sessionLifecycleOptions.MaxActionCount
+            _sessionLifecycleOptions.MaxActionCount,
+            sshGrants
         );
 
         await _accessRequests.UpdateAsync(approved, cancellationToken);

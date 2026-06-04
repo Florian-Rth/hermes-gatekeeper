@@ -2649,6 +2649,11 @@ public sealed class AccessRequestEndpointTests
                 host: "prod-db.example.test",
                 username: "gatekeeper-readonly"
             );
+            ConfigureMaintenanceSeedTarget(
+                "demo-ssh",
+                host: "demo-ssh.example.test",
+                username: "gatekeeper-maintenance"
+            );
         }
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -2728,6 +2733,56 @@ public sealed class AccessRequestEndpointTests
             );
         }
 
+        private static void ConfigureMaintenanceSeedTarget(
+            string alias,
+            string host,
+            string username
+        )
+        {
+            Environment.SetEnvironmentVariable($"SshConnector__Targets__{alias}__Host", host);
+            Environment.SetEnvironmentVariable($"SshConnector__Targets__{alias}__Port", "22");
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Username",
+                username
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__PrivateKeyPath",
+                $"/run/secrets/{alias}-key"
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__KnownHostsPath",
+                $"/run/secrets/{alias}-known-hosts"
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Profiles__remote.maintenance.basic__Actions__0",
+                "service.restart"
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Profiles__remote.maintenance.basic__Actions__1",
+                "service.reload"
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Profiles__remote.maintenance.basic__Actions__2",
+                "backup.trigger"
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Actions__service.restart__Command__0",
+                "systemctl"
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Actions__service.restart__Command__1",
+                "restart"
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Actions__service.restart__IsMutating",
+                "true"
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Actions__service.restart__Risk",
+                "High"
+            );
+        }
+
         private static void ClearCatalogSeedTarget(string alias)
         {
             Environment.SetEnvironmentVariable($"SshConnector__Targets__{alias}__Host", null);
@@ -2779,6 +2834,49 @@ public sealed class AccessRequestEndpointTests
             );
         }
 
+        private static void ClearMaintenanceSeedTarget(string alias)
+        {
+            Environment.SetEnvironmentVariable($"SshConnector__Targets__{alias}__Host", null);
+            Environment.SetEnvironmentVariable($"SshConnector__Targets__{alias}__Port", null);
+            Environment.SetEnvironmentVariable($"SshConnector__Targets__{alias}__Username", null);
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__PrivateKeyPath",
+                null
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__KnownHostsPath",
+                null
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Profiles__remote.maintenance.basic__Actions__0",
+                null
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Profiles__remote.maintenance.basic__Actions__1",
+                null
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Profiles__remote.maintenance.basic__Actions__2",
+                null
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Actions__service.restart__Command__0",
+                null
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Actions__service.restart__Command__1",
+                null
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Actions__service.restart__IsMutating",
+                null
+            );
+            Environment.SetEnvironmentVariable(
+                $"SshConnector__Targets__{alias}__Actions__service.restart__Risk",
+                null
+            );
+        }
+
         protected override void Dispose(bool disposing)
         {
             base.Dispose(disposing);
@@ -2793,6 +2891,7 @@ public sealed class AccessRequestEndpointTests
             Environment.SetEnvironmentVariable("GATEKEEPER_SESSION_MAX_ACTION_COUNT", null);
             ClearCatalogSeedTarget("prod-api");
             ClearCatalogSeedTarget("prod-db");
+            ClearMaintenanceSeedTarget("demo-ssh");
             if (File.Exists(_databasePath))
             {
                 File.Delete(_databasePath);

@@ -1,5 +1,6 @@
 using Gatekeeper.Application.Sessions;
 using Gatekeeper.Core.AccessRequests;
+using Gatekeeper.Core.Sessions;
 using Gatekeeper.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,53 +15,50 @@ public sealed class DbSshApprovalCatalogValidator : ISshApprovalCatalogValidator
         _dbContext = dbContext;
     }
 
-    public async Task<bool> CanCreateSessionForApprovedRequestAsync(
+    public async Task<IReadOnlyList<SshProfileGrant>> ResolveGrantsAsync(
         AccessRequest request,
         CancellationToken cancellationToken
     )
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        if (request.Targets.Count != 1)
-        {
-            return true;
-        }
-
-        string[] profileNames = request
-            .RequestedCapabilities.Where(IsSshProfileCapability)
-            .Distinct(StringComparer.Ordinal)
+        string[] capabilities = request
+            .RequestedCapabilities.Distinct(StringComparer.Ordinal)
             .ToArray();
-        if (profileNames.Length == 0)
+        if (capabilities.Length == 0)
         {
-            return true;
+            return [];
         }
 
-        string targetAlias = request.Targets[0];
-        Guid? targetId = await _dbContext
-            .SshTargets.AsNoTracking()
-            .Where(target => target.Alias == targetAlias)
-            .Select(target => (Guid?)target.Id)
-            .SingleOrDefaultAsync(cancellationToken);
-        if (!targetId.HasValue)
+        List<SshProfileGrant> grants = [];
+
+        foreach (string targetAlias in request.Targets)
         {
-            return false;
+            Guid? targetId = await _dbContext
+                .SshTargets.AsNoTracking()
+                .Where(target => target.Alias == targetAlias)
+                .Select(target => (Guid?)target.Id)
+                .SingleOrDefaultAsync(cancellationToken);
+            if (!targetId.HasValue)
+            {
+                continue;
+            }
+
+            List<string> matchedProfiles = await _dbContext
+                .SshProfiles.AsNoTracking()
+                .Where(profile =>
+                    profile.TargetId == targetId.Value && capabilities.Contains(profile.Name)
+                )
+                .Select(profile => profile.Name)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            foreach (string profileName in matchedProfiles)
+            {
+                grants.Add(new SshProfileGrant(targetAlias, profileName));
+            }
         }
 
-        int matchingProfiles = await _dbContext
-            .SshProfiles.AsNoTracking()
-            .Where(profile =>
-                profile.TargetId == targetId.Value && profileNames.Contains(profile.Name)
-            )
-            .Select(profile => profile.Name)
-            .Distinct()
-            .CountAsync(cancellationToken);
-
-        return matchingProfiles == profileNames.Length;
-    }
-
-    private static bool IsSshProfileCapability(string capability)
-    {
-        return capability.StartsWith("ssh.", StringComparison.Ordinal)
-            || capability.StartsWith("remote.", StringComparison.Ordinal);
+        return grants;
     }
 }
