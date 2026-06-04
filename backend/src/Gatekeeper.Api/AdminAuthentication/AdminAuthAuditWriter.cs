@@ -9,17 +9,11 @@ namespace Gatekeeper.Api.AdminAuthentication;
 public sealed class AdminAuthAuditWriter
 {
     private readonly IAuditEventRepository _auditEvents;
-    private readonly IAccessRequestUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
-    public AdminAuthAuditWriter(
-        IAuditEventRepository auditEvents,
-        IAccessRequestUnitOfWork unitOfWork,
-        IClock clock
-    )
+    public AdminAuthAuditWriter(IAuditEventRepository auditEvents, IClock clock)
     {
         _auditEvents = auditEvents;
-        _unitOfWork = unitOfWork;
         _clock = clock;
     }
 
@@ -79,6 +73,6 @@ public sealed class AdminAuthAuditWriter
     private async Task WriteAsync(AuditEvent auditEvent, CancellationToken cancellationToken)
     {
         await _auditEvents.AddAsync(auditEvent, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _auditEvents.SaveChangesAsync(cancellationToken);
     }
 }

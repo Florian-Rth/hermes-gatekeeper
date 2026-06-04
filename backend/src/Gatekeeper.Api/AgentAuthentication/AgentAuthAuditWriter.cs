@@ -10,19 +10,16 @@ namespace Gatekeeper.Api.AgentAuthentication;
 public sealed class AgentAuthAuditWriter
 {
     private readonly IAuditEventRepository _auditEvents;
-    private readonly IAccessRequestUnitOfWork _unitOfWork;
     private readonly IClock _clock;
     private readonly ILogger<AgentAuthAuditWriter> _logger;
 
     public AgentAuthAuditWriter(
         IAuditEventRepository auditEvents,
-        IAccessRequestUnitOfWork unitOfWork,
         IClock clock,
         ILogger<AgentAuthAuditWriter> logger
     )
     {
         _auditEvents = auditEvents;
-        _unitOfWork = unitOfWork;
         _clock = clock;
         _logger = logger;
     }
@@ -74,6 +71,6 @@ public sealed class AgentAuthAuditWriter
     private async Task WriteAsync(AuditEvent auditEvent, CancellationToken cancellationToken)
     {
         await _auditEvents.AddAsync(auditEvent, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _auditEvents.SaveChangesAsync(cancellationToken);
     }
 }

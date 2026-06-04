@@ -475,6 +475,11 @@ public sealed class AccessRequestServiceTests
             Items.Add(auditEvent);
             return Task.CompletedTask;
         }
+
+        public Task SaveChangesAsync(CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FakeAccessRequestUnitOfWork : IAccessRequestUnitOfWork

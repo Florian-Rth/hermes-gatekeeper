@@ -13,7 +13,6 @@ public sealed class AgentAuthAuditWriterTests
     {
         AgentAuthAuditWriter writer = new AgentAuthAuditWriter(
             new ThrowingAuditEventRepository(),
-            new NoOpAccessRequestUnitOfWork(),
             new StubClock(),
             NullLogger<AgentAuthAuditWriter>.Instance
         );
@@ -30,8 +29,7 @@ public sealed class AgentAuthAuditWriterTests
     public async Task WriteFailedAuthenticationAsync_DoesNotThrow_WhenSaveChangesFails()
     {
         AgentAuthAuditWriter writer = new AgentAuthAuditWriter(
-            new CapturingAuditEventRepository(),
-            new ThrowingAccessRequestUnitOfWork(),
+            new CapturingAuditEventRepository { ThrowOnSaveChanges = true },
             new StubClock(),
             NullLogger<AgentAuthAuditWriter>.Instance
         );
@@ -55,32 +53,33 @@ public sealed class AgentAuthAuditWriterTests
         {
             throw new InvalidOperationException("Simulated audit repository failure.");
         }
+
+        public Task SaveChangesAsync(CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class CapturingAuditEventRepository : IAuditEventRepository
     {
         public AuditEvent? Captured { get; private set; }
 
+        public bool ThrowOnSaveChanges { get; set; }
+
         public Task AddAsync(AuditEvent auditEvent, CancellationToken cancellationToken)
         {
             Captured = auditEvent;
             return Task.CompletedTask;
         }
-    }
 
-    private sealed class NoOpAccessRequestUnitOfWork : IAccessRequestUnitOfWork
-    {
         public Task SaveChangesAsync(CancellationToken cancellationToken)
         {
+            if (ThrowOnSaveChanges)
+            {
+                throw new InvalidOperationException("Simulated save failure.");
+            }
+
             return Task.CompletedTask;
-        }
-    }
-
-    private sealed class ThrowingAccessRequestUnitOfWork : IAccessRequestUnitOfWork
-    {
-        public Task SaveChangesAsync(CancellationToken cancellationToken)
-        {
-            throw new InvalidOperationException("Simulated save failure.");
         }
     }
 }

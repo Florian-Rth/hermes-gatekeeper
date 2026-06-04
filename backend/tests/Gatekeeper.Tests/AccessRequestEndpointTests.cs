@@ -2621,6 +2621,11 @@ public sealed class AccessRequestEndpointTests
         {
             throw new InvalidOperationException("Simulated audit repository failure.");
         }
+
+        public Task SaveChangesAsync(CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class AccessRequestApiFactory : WebApplicationFactory<Program>

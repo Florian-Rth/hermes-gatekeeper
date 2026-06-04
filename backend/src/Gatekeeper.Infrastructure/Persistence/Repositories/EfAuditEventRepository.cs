@@ -52,6 +52,18 @@ public sealed class EfAuditEventRepository : IAuditEventRepository, IAuditEventQ
         await _dbContext.AuditEvents.AddAsync(ToEntity(auditEvent), cancellationToken);
     }
 
+    public async Task SaveChangesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            throw new InvalidOperationException("Audit event persistence conflict.", exception);
+        }
+    }
+
     public async Task<IReadOnlyList<AuditEventSummary>> ListAsync(
         AuditEventQueryCriteria criteria,
         CancellationToken cancellationToken

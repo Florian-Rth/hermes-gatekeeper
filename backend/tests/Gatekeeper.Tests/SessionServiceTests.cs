@@ -240,6 +240,11 @@ public sealed class SessionServiceTests
             Items.Add(auditEvent);
             return Task.CompletedTask;
         }
+
+        public Task SaveChangesAsync(CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FakeSessionUnitOfWork : ISessionActionUnitOfWork
