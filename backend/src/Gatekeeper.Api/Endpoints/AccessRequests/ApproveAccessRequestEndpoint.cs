@@ -23,20 +23,11 @@ public sealed class ApproveAccessRequestEndpoint
     public override void Configure()
     {
         Post("/api/v1/access-requests/{id}/approve");
-        AllowAnonymous();
+        AuthSchemes(AdminAuthConstants.Scheme);
     }
 
     public override async Task HandleAsync(ApproveAccessRequestRequest req, CancellationToken ct)
     {
-        if (!_adminSessionGuard.IsAuthenticated(HttpContext))
-        {
-            await Send.StringAsync(
-                string.Empty,
-                StatusCodes.Status401Unauthorized,
-                cancellation: ct
-            );
-            return;
-        }
         if (!_adminSessionGuard.HasValidUnsafeRequestOrigin(HttpContext))
         {
             await Send.ForbiddenAsync(ct);

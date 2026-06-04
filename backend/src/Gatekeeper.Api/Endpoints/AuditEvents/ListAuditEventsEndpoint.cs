@@ -8,36 +8,21 @@ namespace Gatekeeper.Api.Endpoints.AuditEvents;
 public sealed class ListAuditEventsEndpoint
     : Endpoint<ListAuditEventsRequest, ListAuditEventsResponse>
 {
-    private readonly AdminSessionGuard _adminSessionGuard;
     private readonly IAuditEventQueryService _auditEvents;
 
-    public ListAuditEventsEndpoint(
-        AdminSessionGuard adminSessionGuard,
-        IAuditEventQueryService auditEvents
-    )
+    public ListAuditEventsEndpoint(IAuditEventQueryService auditEvents)
     {
-        _adminSessionGuard = adminSessionGuard;
         _auditEvents = auditEvents;
     }
 
     public override void Configure()
     {
         Get("/api/v1/audit-events");
-        AllowAnonymous();
+        AuthSchemes(AdminAuthConstants.Scheme);
     }
 
     public override async Task HandleAsync(ListAuditEventsRequest request, CancellationToken ct)
     {
-        if (!_adminSessionGuard.IsAuthenticated(HttpContext))
-        {
-            await Send.StringAsync(
-                string.Empty,
-                StatusCodes.Status401Unauthorized,
-                cancellation: ct
-            );
-            return;
-        }
-
         if (
             !TryParseRequest(
                 request,

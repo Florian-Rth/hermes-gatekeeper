@@ -10,36 +10,22 @@ namespace Gatekeeper.Api.Endpoints.AccessRequests;
 public sealed class CreateAccessRequestEndpoint
     : Endpoint<CreateAccessRequestRequest, CreateAccessRequestResponse>
 {
-    private const string RouteTemplate = "/api/v1/access-requests";
-
     private readonly IAccessRequestService _accessRequestService;
-    private readonly AgentApiKeyGuard _agentApiKeyGuard;
-    private readonly AgentAuthAuditWriter _agentAuthAuditWriter;
 
-    public CreateAccessRequestEndpoint(
-        IAccessRequestService accessRequestService,
-        AgentApiKeyGuard agentApiKeyGuard,
-        AgentAuthAuditWriter agentAuthAuditWriter
-    )
+    public CreateAccessRequestEndpoint(IAccessRequestService accessRequestService)
     {
         _accessRequestService = accessRequestService;
-        _agentApiKeyGuard = agentApiKeyGuard;
-        _agentAuthAuditWriter = agentAuthAuditWriter;
     }
 
     public override void Configure()
     {
-        Post(RouteTemplate);
-        AllowAnonymous();
+        Post("/api/v1/access-requests");
+        AuthSchemes(AgentAuthConstants.Scheme);
     }
 
     public override async Task HandleAsync(CreateAccessRequestRequest req, CancellationToken ct)
     {
-        AgentIdentity? agentIdentity = await EnsureAgentAuthenticatedAsync(ct);
-        if (agentIdentity is null)
-        {
-            return;
-        }
+        AgentIdentity agentIdentity = AgentIdentity.FromPrincipal(HttpContext.User)!;
 
         CreateAccessRequestCommand command = new CreateAccessRequestCommand(
             req.Intent,
@@ -52,7 +38,7 @@ public sealed class CreateAccessRequestEndpoint
             req.ProposedActions,
             req.ForbiddenActions,
             req.Metadata,
-            ToAuthenticatedAgent(agentIdentity)
+            new AuthenticatedAgent(agentIdentity.AgentId, agentIdentity.AuthMethod)
         );
 
         AccessRequestDetails accessRequest = await _accessRequestService.CreateAsync(command, ct);
@@ -65,46 +51,6 @@ public sealed class CreateAccessRequestEndpoint
 
         HttpContext.Response.Headers.Location = $"/api/v1/access-requests/{accessRequest.Id}";
         await Send.ResponseAsync(response, StatusCodes.Status201Created, ct);
-    }
-
-    public override async Task OnBeforeValidateAsync(
-        CreateAccessRequestRequest req,
-        CancellationToken ct
-    )
-    {
-        await EnsureAgentAuthenticatedAsync(ct);
-    }
-
-    private async Task<AgentIdentity?> EnsureAgentAuthenticatedAsync(CancellationToken ct)
-    {
-        if (HttpContext.Response.HasStarted)
-        {
-            return null;
-        }
-
-        AgentAuthResult result = _agentApiKeyGuard.Authenticate(HttpContext);
-        if (!result.Succeeded || result.Identity is null)
-        {
-            await _agentAuthAuditWriter.WriteFailedAuthenticationAsync(
-                RouteTemplate,
-                HttpMethods.Post,
-                result.FailureReason ?? AgentAuthConstants.InvalidKeyReason,
-                ct
-            );
-            await Send.StringAsync(
-                string.Empty,
-                StatusCodes.Status401Unauthorized,
-                cancellation: ct
-            );
-            return null;
-        }
-
-        return result.Identity;
-    }
-
-    private static AuthenticatedAgent ToAuthenticatedAgent(AgentIdentity identity)
-    {
-        return new AuthenticatedAgent(identity.AgentId, identity.AuthMethod);
     }
 }
 

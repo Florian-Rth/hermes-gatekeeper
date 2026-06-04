@@ -10,36 +10,22 @@ namespace Gatekeeper.Api.Endpoints.Sessions;
 public sealed class ExecuteSessionActionEndpoint
     : Endpoint<ExecuteSessionActionRequest, ExecuteSessionActionResponse>
 {
-    private const string RouteTemplate = "/api/v1/sessions/{sessionId}/actions";
-
     private readonly ISessionActionService _sessionActions;
-    private readonly AgentApiKeyGuard _agentApiKeyGuard;
-    private readonly AgentAuthAuditWriter _agentAuthAuditWriter;
 
-    public ExecuteSessionActionEndpoint(
-        ISessionActionService sessionActions,
-        AgentApiKeyGuard agentApiKeyGuard,
-        AgentAuthAuditWriter agentAuthAuditWriter
-    )
+    public ExecuteSessionActionEndpoint(ISessionActionService sessionActions)
     {
         _sessionActions = sessionActions;
-        _agentApiKeyGuard = agentApiKeyGuard;
-        _agentAuthAuditWriter = agentAuthAuditWriter;
     }
 
     public override void Configure()
     {
-        Post(RouteTemplate);
-        AllowAnonymous();
+        Post("/api/v1/sessions/{sessionId}/actions");
+        AuthSchemes(AgentAuthConstants.Scheme);
     }
 
     public override async Task HandleAsync(ExecuteSessionActionRequest req, CancellationToken ct)
     {
-        AgentIdentity? agentIdentity = await EnsureAgentAuthenticatedAsync(ct);
-        if (agentIdentity is null)
-        {
-            return;
-        }
+        AgentIdentity agentIdentity = AgentIdentity.FromPrincipal(HttpContext.User)!;
 
         if (req.SessionId == Guid.Empty || !HasValidActionShape(req))
         {
@@ -55,7 +41,7 @@ public sealed class ExecuteSessionActionEndpoint
                 req.Parameters,
                 req.Capability,
                 req.Payload,
-                ToAuthenticatedAgent(agentIdentity)
+                new AuthenticatedAgent(agentIdentity.AgentId, agentIdentity.AuthMethod)
             ),
             ct
         );
@@ -100,46 +86,6 @@ public sealed class ExecuteSessionActionEndpoint
             Action = req.Action,
         };
         await Send.OkAsync(response, ct);
-    }
-
-    public override async Task OnBeforeValidateAsync(
-        ExecuteSessionActionRequest req,
-        CancellationToken ct
-    )
-    {
-        await EnsureAgentAuthenticatedAsync(ct);
-    }
-
-    private async Task<AgentIdentity?> EnsureAgentAuthenticatedAsync(CancellationToken ct)
-    {
-        if (HttpContext.Response.HasStarted)
-        {
-            return null;
-        }
-
-        AgentAuthResult result = _agentApiKeyGuard.Authenticate(HttpContext);
-        if (!result.Succeeded || result.Identity is null)
-        {
-            await _agentAuthAuditWriter.WriteFailedAuthenticationAsync(
-                RouteTemplate,
-                HttpMethods.Post,
-                result.FailureReason ?? AgentAuthConstants.InvalidKeyReason,
-                ct
-            );
-            await Send.StringAsync(
-                string.Empty,
-                StatusCodes.Status401Unauthorized,
-                cancellation: ct
-            );
-            return null;
-        }
-
-        return result.Identity;
-    }
-
-    private static AuthenticatedAgent ToAuthenticatedAgent(AgentIdentity identity)
-    {
-        return new AuthenticatedAgent(identity.AgentId, identity.AuthMethod);
     }
 
     private static bool HasValidActionShape(ExecuteSessionActionRequest req)

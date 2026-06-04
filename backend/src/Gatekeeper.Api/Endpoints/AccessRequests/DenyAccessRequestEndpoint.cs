@@ -23,20 +23,11 @@ public sealed class DenyAccessRequestEndpoint
     public override void Configure()
     {
         Post("/api/v1/access-requests/{id}/deny");
-        AllowAnonymous();
+        AuthSchemes(AdminAuthConstants.Scheme);
     }
 
     public override async Task HandleAsync(DenyAccessRequestRequest req, CancellationToken ct)
     {
-        if (!_adminSessionGuard.IsAuthenticated(HttpContext))
-        {
-            await Send.StringAsync(
-                string.Empty,
-                StatusCodes.Status401Unauthorized,
-                cancellation: ct
-            );
-            return;
-        }
         if (!_adminSessionGuard.HasValidUnsafeRequestOrigin(HttpContext))
         {
             await Send.ForbiddenAsync(ct);

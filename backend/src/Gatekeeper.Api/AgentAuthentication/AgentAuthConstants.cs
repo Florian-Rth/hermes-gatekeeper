@@ -10,4 +10,6 @@ public static class AgentAuthConstants
     public const string MalformedKeyReason = "malformed_key";
     public const string InvalidKeyReason = "invalid_key";
     public const string AuthNotConfiguredReason = "auth_not_configured";
+    public const string AgentIdClaimType = "gatekeeper:agent_id";
+    public const string AuthMethodClaimType = "gatekeeper:auth_method";
 }

@@ -8,6 +8,7 @@ using Gatekeeper.Application;
 using Gatekeeper.Infrastructure;
 using Gatekeeper.Infrastructure.Catalog;
 using Gatekeeper.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -48,6 +49,10 @@ builder
                 return Task.CompletedTask;
             };
         }
+    )
+    .AddScheme<AuthenticationSchemeOptions, AgentApiKeyAuthenticationHandler>(
+        AgentAuthConstants.Scheme,
+        null
     );
 builder.Services.AddAuthorization();
 
