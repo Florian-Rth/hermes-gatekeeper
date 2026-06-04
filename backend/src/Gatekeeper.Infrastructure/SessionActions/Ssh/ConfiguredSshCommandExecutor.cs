@@ -5,12 +5,10 @@ namespace Gatekeeper.Infrastructure.SessionActions.Ssh;
 
 public sealed class ConfiguredSshCommandExecutor : ISshCommandExecutor
 {
-    private readonly SshConnectorOptions _options;
     private readonly ISshCommandClient _client;
 
-    public ConfiguredSshCommandExecutor(SshConnectorOptions options, ISshCommandClient client)
+    public ConfiguredSshCommandExecutor(ISshCommandClient client)
     {
-        _options = options;
         _client = client;
     }
 
@@ -21,12 +19,6 @@ public sealed class ConfiguredSshCommandExecutor : ISshCommandExecutor
     {
         ArgumentNullException.ThrowIfNull(resolvedAction);
 
-        SshTargetOptions? configuredTarget = null;
-        if (_options.Targets.TryGetValue(resolvedAction.TargetAlias, out SshTargetOptions? target))
-        {
-            configuredTarget = target;
-        }
-
         if (resolvedAction.Command.Count == 0)
         {
             return SshCommandExecutionResult.Failed(
@@ -35,7 +27,7 @@ public sealed class ConfiguredSshCommandExecutor : ISshCommandExecutor
             );
         }
 
-        SshCommandClientRequest? request = CreateClientRequest(resolvedAction, configuredTarget);
+        SshCommandClientRequest? request = CreateClientRequest(resolvedAction);
         if (request is null)
         {
             return SshCommandExecutionResult.Failed(
@@ -85,25 +77,16 @@ public sealed class ConfiguredSshCommandExecutor : ISshCommandExecutor
         return SshCommandExecutionResult.Completed(output);
     }
 
-    private static SshCommandClientRequest? CreateClientRequest(
-        SshResolvedAction resolvedAction,
-        SshTargetOptions? configuredTarget
-    )
+    private static SshCommandClientRequest? CreateClientRequest(SshResolvedAction resolvedAction)
     {
         string executable = resolvedAction.Command[0];
         string[] arguments = resolvedAction.Command.Skip(1).ToArray();
 
-        string? host = FirstNonEmpty(resolvedAction.Host, configuredTarget?.Host);
-        string? username = FirstNonEmpty(resolvedAction.Username, configuredTarget?.Username);
-        string? privateKeyPath = FirstNonEmpty(
-            resolvedAction.PrivateKeyPath,
-            configuredTarget?.PrivateKeyPath
-        );
-        string? knownHostsPath = FirstNonEmpty(
-            resolvedAction.KnownHostsPath,
-            configuredTarget?.KnownHostsPath
-        );
-        int port = resolvedAction.Port > 0 ? resolvedAction.Port : configuredTarget?.Port ?? 0;
+        string? host = resolvedAction.Host;
+        string? username = resolvedAction.Username;
+        string? privateKeyPath = resolvedAction.PrivateKeyPath;
+        string? knownHostsPath = resolvedAction.KnownHostsPath;
+        int port = resolvedAction.Port;
 
         if (
             string.IsNullOrWhiteSpace(host)
@@ -127,11 +110,6 @@ public sealed class ConfiguredSshCommandExecutor : ISshCommandExecutor
             resolvedAction.Timeout,
             resolvedAction.OutputLimitBytes
         );
-    }
-
-    private static string? FirstNonEmpty(string primary, string? fallback)
-    {
-        return !string.IsNullOrWhiteSpace(primary) ? primary : fallback;
     }
 
     private static string SanitizeError(SshCommandClientFailureReason failureReason)

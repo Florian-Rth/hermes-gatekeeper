@@ -2469,7 +2469,12 @@ public sealed class AccessRequestEndpointTests
                         TimeSpan.FromSeconds(5),
                         4096,
                         false,
-                        RiskLevel.Low
+                        RiskLevel.Low,
+                        host: "demo-ssh",
+                        port: 22,
+                        username: "gatekeeper-readonly",
+                        privateKeyPath: "/run/secrets/demo-key",
+                        knownHostsPath: "/app/config/known_hosts"
                     )
                 );
             }
@@ -2526,7 +2531,12 @@ public sealed class AccessRequestEndpointTests
                             TimeSpan.FromSeconds(15),
                             4096,
                             true,
-                            RiskLevel.High
+                            RiskLevel.High,
+                            host: "demo-ssh",
+                            port: 22,
+                            username: "gatekeeper-readonly",
+                            privateKeyPath: "/run/secrets/demo-key",
+                            knownHostsPath: "/app/config/known_hosts"
                         )
                     );
                 }
@@ -2556,7 +2566,12 @@ public sealed class AccessRequestEndpointTests
                         TimeSpan.FromSeconds(15),
                         4096,
                         true,
-                        RiskLevel.High
+                        RiskLevel.High,
+                        host: "demo-ssh",
+                        port: 22,
+                        username: "gatekeeper-readonly",
+                        privateKeyPath: "/run/secrets/demo-key",
+                        knownHostsPath: "/app/config/known_hosts"
                     )
                 );
             }

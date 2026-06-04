@@ -12,7 +12,7 @@ public sealed class SshCommandExecutorTests
         var client = new FakeSshCommandClient(
             SshCommandClientResult.Completed(0, "linux\n", "warning\n")
         );
-        ConfiguredSshCommandExecutor executor = CreateExecutor(client, outputLimitBytes: 32);
+        ConfiguredSshCommandExecutor executor = new(client);
 
         SshCommandExecutionResult result = await executor.ExecuteAsync(
             CreateResolvedAction(outputLimitBytes: 32),
@@ -35,7 +35,7 @@ public sealed class SshCommandExecutorTests
         var client = new FakeSshCommandClient(
             SshCommandClientResult.Completed(0, "abcdef", "uvwxyz")
         );
-        ConfiguredSshCommandExecutor executor = CreateExecutor(client, outputLimitBytes: 3);
+        ConfiguredSshCommandExecutor executor = new(client);
 
         SshCommandExecutionResult result = await executor.ExecuteAsync(
             CreateResolvedAction(outputLimitBytes: 3),
@@ -56,7 +56,7 @@ public sealed class SshCommandExecutorTests
         var client = new FakeSshCommandClient(
             SshCommandClientResult.Failed(SshCommandClientFailureReason.Timeout, "Timed out.")
         );
-        ConfiguredSshCommandExecutor executor = CreateExecutor(client, outputLimitBytes: 32);
+        ConfiguredSshCommandExecutor executor = new(client);
 
         SshCommandExecutionResult result = await executor.ExecuteAsync(
             CreateResolvedAction(outputLimitBytes: 32),
@@ -90,7 +90,7 @@ public sealed class SshCommandExecutorTests
         var client = new FakeSshCommandClient(
             SshCommandClientResult.Failed(clientFailureReason, "SSH client failed.")
         );
-        ConfiguredSshCommandExecutor executor = CreateExecutor(client, outputLimitBytes: 32);
+        ConfiguredSshCommandExecutor executor = new(client);
 
         SshCommandExecutionResult result = await executor.ExecuteAsync(
             CreateResolvedAction(outputLimitBytes: 32),
@@ -109,7 +109,7 @@ public sealed class SshCommandExecutorTests
         var client = new FakeSshCommandClient(_ =>
             new TaskCompletionSource<SshCommandClientResult>().Task
         );
-        ConfiguredSshCommandExecutor executor = CreateExecutor(client, outputLimitBytes: 32);
+        ConfiguredSshCommandExecutor executor = new(client);
 
         SshCommandExecutionResult result = await executor.ExecuteAsync(
             CreateResolvedAction(outputLimitBytes: 32, timeout: TimeSpan.FromMilliseconds(25)),
@@ -131,7 +131,7 @@ public sealed class SshCommandExecutorTests
                 $"Failed reading {secretPath} for gatekeeper-readonly@demo-ssh."
             )
         );
-        ConfiguredSshCommandExecutor executor = CreateExecutor(client, outputLimitBytes: 32);
+        ConfiguredSshCommandExecutor executor = new(client);
 
         SshCommandExecutionResult result = await executor.ExecuteAsync(
             CreateResolvedAction(outputLimitBytes: 32),
@@ -150,7 +150,7 @@ public sealed class SshCommandExecutorTests
     public async Task ExecuteAsync_Should_TruncateUtf8WithoutSplittingMultibyteCharacter()
     {
         var client = new FakeSshCommandClient(SshCommandClientResult.Completed(0, "éé", "😀x"));
-        ConfiguredSshCommandExecutor executor = CreateExecutor(client, outputLimitBytes: 3);
+        ConfiguredSshCommandExecutor executor = new(client);
 
         SshCommandExecutionResult result = await executor.ExecuteAsync(
             CreateResolvedAction(outputLimitBytes: 3),
@@ -171,7 +171,7 @@ public sealed class SshCommandExecutorTests
         var client = new FakeSshCommandClient(
             SshCommandClientResult.Completed(3, string.Empty, "inactive\n")
         );
-        ConfiguredSshCommandExecutor executor = CreateExecutor(client, outputLimitBytes: 32);
+        ConfiguredSshCommandExecutor executor = new(client);
 
         SshCommandExecutionResult result = await executor.ExecuteAsync(
             CreateResolvedAction(outputLimitBytes: 32),
@@ -191,7 +191,7 @@ public sealed class SshCommandExecutorTests
         var client = new FakeSshCommandClient(
             SshCommandClientResult.Completed(0, string.Empty, string.Empty)
         );
-        ConfiguredSshCommandExecutor executor = CreateExecutor(client, outputLimitBytes: 32);
+        ConfiguredSshCommandExecutor executor = new(client);
         SshResolvedAction resolvedAction = CreateResolvedAction(
             new[] { "systemctl", "is-active", "ssh; rm -rf /" },
             outputLimitBytes: 32
@@ -210,14 +210,14 @@ public sealed class SshCommandExecutorTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_Should_UseResolvedConnectionData_When_ConfigTargetIsMissing()
+    public async Task ExecuteAsync_Should_FailClosed_When_ResolvedActionHasNoConnectionData()
     {
         var client = new FakeSshCommandClient(
             SshCommandClientResult.Completed(0, string.Empty, string.Empty)
         );
-        ConfiguredSshCommandExecutor executor = new(new SshConnectorOptions(), client);
+        ConfiguredSshCommandExecutor executor = new(client);
         SshResolvedAction resolvedAction = new(
-            "db-only-target",
+            "missing-target",
             "system.status.read",
             new[] { "uname", "-a" },
             new Dictionary<string, string>(StringComparer.Ordinal),
@@ -225,11 +225,11 @@ public sealed class SshCommandExecutorTests
             32,
             false,
             RiskLevel.Low,
-            host: "db-only-host",
-            port: 2201,
-            username: "db-user",
-            privateKeyPath: "/run/secrets/db-key",
-            knownHostsPath: "/run/secrets/db-known-hosts"
+            host: string.Empty,
+            port: 0,
+            username: string.Empty,
+            privateKeyPath: string.Empty,
+            knownHostsPath: string.Empty
         );
 
         SshCommandExecutionResult result = await executor.ExecuteAsync(
@@ -237,13 +237,9 @@ public sealed class SshCommandExecutorTests
             TestContext.Current.CancellationToken
         );
 
-        Assert.True(result.Succeeded);
-        Assert.NotNull(client.LastRequest);
-        Assert.Equal("db-only-host", client.LastRequest.Host);
-        Assert.Equal(2201, client.LastRequest.Port);
-        Assert.Equal("db-user", client.LastRequest.Username);
-        Assert.Equal("/run/secrets/db-key", client.LastRequest.PrivateKeyPath);
-        Assert.Equal("/run/secrets/db-known-hosts", client.LastRequest.KnownHostsPath);
+        Assert.False(result.Succeeded);
+        Assert.Equal(SshCommandExecutionFailureReason.UnknownTarget, result.FailureReason);
+        Assert.Null(client.LastRequest);
     }
 
     [Fact]
@@ -312,34 +308,6 @@ public sealed class SshCommandExecutorTests
         Assert.False(output.Truncated);
     }
 
-    private static ConfiguredSshCommandExecutor CreateExecutor(
-        ISshCommandClient client,
-        int outputLimitBytes
-    )
-    {
-        return new ConfiguredSshCommandExecutor(CreateOptions(outputLimitBytes), client);
-    }
-
-    private static SshConnectorOptions CreateOptions(int outputLimitBytes)
-    {
-        return new SshConnectorOptions
-        {
-            Targets = new Dictionary<string, SshTargetOptions>(StringComparer.Ordinal)
-            {
-                ["demo-ssh"] = new SshTargetOptions
-                {
-                    Host = "demo-ssh",
-                    Port = 2222,
-                    Username = "gatekeeper-readonly",
-                    PrivateKeyPath = "/run/secrets/demo-key",
-                    KnownHostsPath = "/app/config/known_hosts",
-                    DefaultTimeoutSeconds = 5,
-                    DefaultOutputLimitBytes = outputLimitBytes,
-                },
-            },
-        };
-    }
-
     private static SshResolvedAction CreateResolvedAction(int outputLimitBytes)
     {
         return CreateResolvedAction(new[] { "uname", "-a" }, outputLimitBytes);
@@ -359,7 +327,12 @@ public sealed class SshCommandExecutorTests
             timeout ?? TimeSpan.FromSeconds(5),
             outputLimitBytes,
             false,
-            RiskLevel.Low
+            RiskLevel.Low,
+            host: "demo-ssh",
+            port: 2222,
+            username: "gatekeeper-readonly",
+            privateKeyPath: "/run/secrets/demo-key",
+            knownHostsPath: "/app/config/known_hosts"
         );
     }
 

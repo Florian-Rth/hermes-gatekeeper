@@ -12,32 +12,6 @@ public sealed class SshResolvedAction
         TimeSpan timeout,
         int outputLimitBytes,
         bool isMutating,
-        RiskLevel risk
-    )
-        : this(
-            targetAlias,
-            actionName,
-            command,
-            safeParameters,
-            timeout,
-            outputLimitBytes,
-            isMutating,
-            risk,
-            host: string.Empty,
-            port: 0,
-            username: string.Empty,
-            privateKeyPath: string.Empty,
-            knownHostsPath: string.Empty
-        ) { }
-
-    public SshResolvedAction(
-        string targetAlias,
-        string actionName,
-        IReadOnlyList<string> command,
-        IReadOnlyDictionary<string, string> safeParameters,
-        TimeSpan timeout,
-        int outputLimitBytes,
-        bool isMutating,
         RiskLevel risk,
         string host,
         int port,
