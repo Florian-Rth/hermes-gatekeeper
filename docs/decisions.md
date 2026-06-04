@@ -166,6 +166,21 @@ Entscheidung: Ein MVP muss das Endziel in minimaler realer Form erfüllen. Der D
 
 Konsequenz: Spezielle Connectoren wie Home Assistant, Docker, Proxmox oder HTTP-Service-Adapter bleiben Post-MVP. SSH wird aber als generischer Systemzugriff Bestandteil von Phase 8. Er bleibt strikt typisiert und read-only: keine freie Shell, kein sudo, keine Write Actions, keine TTY/Interaktivität, keine Dateiübertragung und kein Port Forwarding.
 
+### 2026-06-04 — Backend-Architektur-Sanierung vor weiterer Produktarbeit
+
+Entscheidung: Vor weiterer Produktarbeit läuft eine eigene backend-only Sanierungsphase (`Phase 12y`).
+
+Bindende Reihenfolge:
+
+1. offenen Catalog-/DI-Working-Tree organisatorisch sichern
+2. Auth Boundary framework-native reparieren
+3. Session-Action-Ausführungskern entkoppeln
+4. Audit-Fluss typisieren
+5. SSH-Grants/Profile explizit modellieren
+6. DB-first Catalog Truthfulness ohne Dauer-Hybrid herstellen
+7. erst danach gezielt überflüssige Ceremony abbauen
+
+Konsequenz: Weitere Produktarbeit wird nicht auf den aktuellen Architekturproblemen aufgebaut. Frontend, neue Features, OIDC/mTLS/Multi-Admin Approval und neue Connectoren gehören nicht in diese Sanierungsphase. Detailplan: `docs/phase-12y-backend-architecture-remediation.md`.
 
 ## Vorläufige technische Präferenzen
 

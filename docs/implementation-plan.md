@@ -225,7 +225,28 @@ Phase 9 ist abgeschlossen; Agent API Authentication ist implementiert, getestet,
 
 ---
 
-## Nächste konkrete Phase — Phase 12: Safe Write Actions
+## Nächste konkrete Phase — Phase 12y: Backend Architecture Remediation
+
+Vor weiterer Produktarbeit läuft eine eigene backend-only Sanierungsphase.
+
+Ziel:
+
+- Framework-native Auth-/Authorization-Grenzen herstellen.
+- `SessionActionService` entkoppeln.
+- Audit-Fluss typisieren.
+- SSH-Grants explizit modellieren.
+- DB-first Catalog Truthfulness ohne Dauer-Hybrid herstellen.
+- Erst danach gezielt überflüssige Ceremony abbauen.
+
+Wichtige Bindung:
+
+- Zuerst den aktuell offenen Catalog-/DI-Working-Tree organisatorisch sichern.
+- Keine Sanierungsimplementierung auf unsauberem Working Tree.
+- Detailplan: `docs/phase-12y-backend-architecture-remediation.md`.
+
+---
+
+## Danach wieder Produktarbeit — Phase 12: Safe Write Actions
 
 ### Ziel
 
