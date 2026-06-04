@@ -45,6 +45,8 @@ public static class DependencyInjection
         services.AddScoped<IAuditEventQueryRepository, EfAuditEventRepository>();
         services.AddScoped<IAccessRequestService, AccessRequestService>();
         services.AddScoped<ISessionService, SessionService>();
+        services.AddScoped<SshSessionActionExecutor>();
+        services.AddScoped<LegacySessionActionExecutor>();
         services.AddScoped<ISessionActionService, SessionActionService>();
         services.AddScoped<ISessionActionAdapter, DummySessionActionAdapter>();
         services.AddScoped<ISshApprovalCatalogValidator, DbSshApprovalCatalogValidator>();
