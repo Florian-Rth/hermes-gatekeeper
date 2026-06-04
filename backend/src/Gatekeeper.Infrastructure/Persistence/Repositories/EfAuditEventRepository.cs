@@ -94,6 +94,21 @@ public sealed class EfAuditEventRepository : IAuditEventRepository, IAuditEventQ
         return orderedEntities.Take(criteria.Take).Select(ToSummary).ToArray();
     }
 
+    internal static AuditEventEntity ToEntity(AuditEvent auditEvent)
+    {
+        return new AuditEventEntity
+        {
+            Id = auditEvent.Id,
+            EventType = auditEvent.EventType,
+            AggregateId = auditEvent.AggregateId,
+            OccurredAt = auditEvent.OccurredAt,
+            PayloadJson = auditEvent.PayloadJson,
+            DetailsJson = auditEvent.BoundedDetails is not null
+                ? JsonSerializer.Serialize(auditEvent.BoundedDetails)
+                : null,
+        };
+    }
+
     private static AuditEventSummary ToSummary(AuditEventEntity entity)
     {
         return new AuditEventSummary(
@@ -101,8 +116,30 @@ public sealed class EfAuditEventRepository : IAuditEventRepository, IAuditEventQ
             entity.EventType,
             entity.AggregateId,
             entity.OccurredAt,
-            ExtractBoundedDetails(entity.PayloadJson)
+            DeserializeDetailsOrFallback(entity)
         );
+    }
+
+    private static IReadOnlyDictionary<string, string> DeserializeDetailsOrFallback(
+        AuditEventEntity entity
+    )
+    {
+        if (!string.IsNullOrWhiteSpace(entity.DetailsJson))
+        {
+            try
+            {
+                Dictionary<string, string>? details = JsonSerializer.Deserialize<
+                    Dictionary<string, string>
+                >(entity.DetailsJson);
+                if (details is not null)
+                {
+                    return details;
+                }
+            }
+            catch (JsonException) { }
+        }
+
+        return ExtractBoundedDetails(entity.PayloadJson);
     }
 
     private static IReadOnlyDictionary<string, string> ExtractBoundedDetails(string payloadJson)
@@ -242,17 +279,5 @@ public sealed class EfAuditEventRepository : IAuditEventRepository, IAuditEventQ
 
         value = 0;
         return false;
-    }
-
-    private static AuditEventEntity ToEntity(AuditEvent auditEvent)
-    {
-        return new AuditEventEntity
-        {
-            Id = auditEvent.Id,
-            EventType = auditEvent.EventType,
-            AggregateId = auditEvent.AggregateId,
-            OccurredAt = auditEvent.OccurredAt,
-            PayloadJson = auditEvent.PayloadJson,
-        };
     }
 }

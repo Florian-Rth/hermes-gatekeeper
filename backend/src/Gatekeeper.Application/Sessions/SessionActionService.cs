@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Gatekeeper.Application.AccessRequests;
+using Gatekeeper.Application.AuditEvents;
 using Gatekeeper.Application.Common;
 using Gatekeeper.Core.AccessRequests;
 using Gatekeeper.Core.Sessions;
@@ -62,7 +63,8 @@ public sealed class SessionActionService : ISessionActionService
             AuditEvent.CreateSessionActionRequested(
                 session.Id,
                 now,
-                JsonSerializer.Serialize(ToAuditPayload(session, command, null))
+                JsonSerializer.Serialize(ToFullPayload(session, command, null)),
+                ProjectActionDetails(session, command, null)
             ),
             cancellationToken
         );
@@ -70,14 +72,8 @@ public sealed class SessionActionService : ISessionActionService
         if (session.Status != SessionStatus.Active)
         {
             string reason = "Session is expired or inactive.";
-            await AddDeniedAuditAsync(
-                session,
-                command,
-                now,
-                reason,
-                command.IsSshAction ? ToInactiveSessionReasonCode(session) : null,
-                cancellationToken
-            );
+            string? reasonCode = command.IsSshAction ? ToInactiveSessionReasonCode(session) : null;
+            await AddDeniedAuditAsync(session, command, now, reason, reasonCode, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             return SessionActionResult.Conflicted(reason);
         }
@@ -90,19 +86,14 @@ public sealed class SessionActionService : ISessionActionService
                 AuditEvent.CreateSessionExpired(
                     session.Id,
                     now,
-                    JsonSerializer.Serialize(ToAuditPayload(session, command, "Session expired."))
+                    JsonSerializer.Serialize(ToFullPayload(session, command, "Session expired.")),
+                    ProjectActionDetails(session, command, "Session expired.")
                 ),
                 cancellationToken
             );
             string reason = "Session is expired or inactive.";
-            await AddDeniedAuditAsync(
-                session,
-                command,
-                now,
-                reason,
-                command.IsSshAction ? "session_expired" : null,
-                cancellationToken
-            );
+            string? reasonCode = command.IsSshAction ? "session_expired" : null;
+            await AddDeniedAuditAsync(session, command, now, reason, reasonCode, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             return SessionActionResult.Conflicted(reason);
         }
@@ -128,7 +119,8 @@ public sealed class SessionActionService : ISessionActionService
             AuditEvent.CreateSessionActionDenied(
                 session.Id,
                 now,
-                JsonSerializer.Serialize(ToAuditPayload(session, command, reason, reasonCode))
+                JsonSerializer.Serialize(ToFullPayload(session, command, reason, reasonCode)),
+                ProjectActionDetails(session, command, reason, reasonCode)
             ),
             cancellationToken
         );
@@ -150,7 +142,7 @@ public sealed class SessionActionService : ISessionActionService
         return session.Status == SessionStatus.Expired ? "session_expired" : "session_inactive";
     }
 
-    private static object ToAuditPayload(
+    internal static object ToFullPayload(
         Session session,
         ExecuteSessionActionCommand command,
         string? reason,
@@ -203,5 +195,35 @@ public sealed class SessionActionService : ISessionActionService
             AgentId = command.Agent?.AgentId,
             AuthMethod = command.Agent?.AuthMethod,
         };
+    }
+
+    internal static IReadOnlyDictionary<string, string> ProjectActionDetails(
+        Session session,
+        ExecuteSessionActionCommand command,
+        string? reason,
+        string? reasonCode = null
+    )
+    {
+        Dictionary<string, object?> source = new()
+        {
+            ["sessionId"] = session.Id,
+            ["accessRequestId"] = session.AccessRequestId,
+            ["reason"] = reason,
+            ["reasonCode"] = reasonCode,
+            ["agentId"] = command.Agent?.AgentId,
+            ["authMethod"] = command.Agent?.AuthMethod,
+        };
+
+        if (command.IsSshAction)
+        {
+            source["targetAlias"] = command.Target;
+            source["action"] = command.Action;
+        }
+        else
+        {
+            source["capability"] = command.Capability;
+        }
+
+        return AuditDetailProjector.Project(source);
     }
 }

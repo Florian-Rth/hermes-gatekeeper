@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Gatekeeper.Application.AccessRequests;
+using Gatekeeper.Application.AuditEvents;
 using Gatekeeper.Application.Common;
 using Gatekeeper.Core.AccessRequests;
 using Gatekeeper.Core.Sessions;
@@ -62,7 +63,8 @@ public sealed class SessionService : ISessionService
             AuditEvent.CreateSessionCompleted(
                 completed.Id,
                 now,
-                JsonSerializer.Serialize(ToAuditPayload(completed))
+                JsonSerializer.Serialize(ToFullPayload(completed)),
+                ProjectLifecycleDetails(completed)
             ),
             cancellationToken
         );
@@ -102,7 +104,8 @@ public sealed class SessionService : ISessionService
             AuditEvent.CreateSessionRevoked(
                 revoked.Id,
                 now,
-                JsonSerializer.Serialize(ToAuditPayload(revoked))
+                JsonSerializer.Serialize(ToFullPayload(revoked)),
+                ProjectLifecycleDetails(revoked)
             ),
             cancellationToken
         );
@@ -135,7 +138,8 @@ public sealed class SessionService : ISessionService
             AuditEvent.CreateSessionExpired(
                 expired.Id,
                 now,
-                JsonSerializer.Serialize(ToAuditPayload(expired))
+                JsonSerializer.Serialize(ToFullPayload(expired)),
+                ProjectLifecycleDetails(expired)
             ),
             cancellationToken
         );
@@ -169,7 +173,7 @@ public sealed class SessionService : ISessionService
         );
     }
 
-    private static object ToAuditPayload(Session session)
+    private static object ToFullPayload(Session session)
     {
         return new
         {
@@ -181,5 +185,17 @@ public sealed class SessionService : ISessionService
             session.RevokedAt,
             session.ExpiredAt,
         };
+    }
+
+    private static IReadOnlyDictionary<string, string> ProjectLifecycleDetails(Session session)
+    {
+        return AuditDetailProjector.Project(
+            new Dictionary<string, object?>
+            {
+                ["sessionId"] = session.Id,
+                ["accessRequestId"] = session.AccessRequestId,
+                ["status"] = session.Status.ToString(),
+            }
+        );
     }
 }

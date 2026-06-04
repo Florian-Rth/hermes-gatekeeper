@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Gatekeeper.Application.AccessRequests;
+using Gatekeeper.Application.AuditEvents;
 using Gatekeeper.Application.Common;
 using Gatekeeper.Core.AccessRequests;
 using Microsoft.Extensions.Logging;
@@ -35,11 +36,19 @@ public sealed class AgentAuthAuditWriter
     {
         try
         {
+            Dictionary<string, string> payload = new()
+            {
+                ["routeTemplate"] = routeTemplate,
+                ["httpMethod"] = httpMethod,
+                ["reasonCode"] = reasonCode,
+                ["authMethod"] = AgentAuthConstants.ApiKeyAuthMethod,
+            };
             await WriteAsync(
                 AuditEvent.CreateAgentAuthenticationFailed(
                     _clock.UtcNow,
-                    JsonSerializer.Serialize(
-                        new Dictionary<string, string>
+                    JsonSerializer.Serialize(payload),
+                    AuditDetailProjector.Project(
+                        new Dictionary<string, object?>
                         {
                             ["routeTemplate"] = routeTemplate,
                             ["httpMethod"] = httpMethod,

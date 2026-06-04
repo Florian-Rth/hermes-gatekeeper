@@ -11,4 +11,6 @@ public sealed class AuditEventEntity
     public DateTimeOffset OccurredAt { get; set; }
 
     public string PayloadJson { get; set; } = string.Empty;
+
+    public string? DetailsJson { get; set; }
 }

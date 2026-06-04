@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Gatekeeper.Application.AuditEvents;
 using Gatekeeper.Application.Common;
 using Gatekeeper.Application.Sessions;
 using Gatekeeper.Core.AccessRequests;
@@ -59,15 +60,23 @@ public sealed class AccessRequestService : IAccessRequestService
 
         await _accessRequests.AddAsync(accessRequest, cancellationToken);
 
+        AccessRequestDetails details = ToDetails(accessRequest);
+        object fullPayload = ToAuditPayload(details, null, command.Agent);
+        IReadOnlyDictionary<string, string> boundedDetails = ProjectAccessRequestDetails(
+            details,
+            null,
+            command.Agent
+        );
         var auditEvent = AuditEvent.CreateAccessRequestCreated(
             accessRequest.Id,
             now,
-            JsonSerializer.Serialize(ToAuditPayload(ToDetails(accessRequest), null, command.Agent))
+            JsonSerializer.Serialize(fullPayload),
+            boundedDetails
         );
         await _auditEvents.AddAsync(auditEvent, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        return ToDetails(accessRequest);
+        return details;
     }
 
     public async Task<ApprovalResult> ApproveAsync(
@@ -112,20 +121,26 @@ public sealed class AccessRequestService : IAccessRequestService
 
         await _accessRequests.UpdateAsync(approved, cancellationToken);
         await _sessions.AddAsync(session, cancellationToken);
+
+        AccessRequestDetails approvedDetails = ToDetails(approved);
         await _auditEvents.AddAsync(
             AuditEvent.CreateAccessRequestApproved(
                 approved.Id,
                 now,
-                JsonSerializer.Serialize(ToAuditPayload(ToDetails(approved), command.Comment))
+                JsonSerializer.Serialize(ToAuditPayload(approvedDetails, command.Comment)),
+                ProjectAccessRequestDetails(approvedDetails, command.Comment)
             ),
             cancellationToken
         );
+
+        SessionDetails sessionDetails = ToSessionDetails(session);
         await _auditEvents.AddAsync(
             AuditEvent.CreateSessionCreated(
                 session.Id,
                 approved.Id,
                 now,
-                JsonSerializer.Serialize(ToAuditPayload(ToSessionDetails(session), command.Comment))
+                JsonSerializer.Serialize(ToAuditPayload(sessionDetails, command.Comment)),
+                ProjectSessionDetails(sessionDetails, command.Comment)
             ),
             cancellationToken
         );
@@ -138,7 +153,7 @@ public sealed class AccessRequestService : IAccessRequestService
             return ApprovalResult.Conflicted();
         }
 
-        return ApprovalResult.Succeeded(ToDetails(approved), ToSessionDetails(session));
+        return ApprovalResult.Succeeded(approvedDetails, sessionDetails);
     }
 
     public async Task<DenialResult> DenyAsync(
@@ -166,11 +181,14 @@ public sealed class AccessRequestService : IAccessRequestService
         var denied = accessRequest.Deny(now);
 
         await _accessRequests.UpdateAsync(denied, cancellationToken);
+
+        AccessRequestDetails deniedDetails = ToDetails(denied);
         await _auditEvents.AddAsync(
             AuditEvent.CreateAccessRequestDenied(
                 denied.Id,
                 now,
-                JsonSerializer.Serialize(ToAuditPayload(ToDetails(denied), command.Comment))
+                JsonSerializer.Serialize(ToAuditPayload(deniedDetails, command.Comment)),
+                ProjectAccessRequestDetails(deniedDetails, command.Comment)
             ),
             cancellationToken
         );
@@ -183,7 +201,7 @@ public sealed class AccessRequestService : IAccessRequestService
             return DenialResult.Conflicted();
         }
 
-        return DenialResult.Succeeded(ToDetails(denied));
+        return DenialResult.Succeeded(deniedDetails);
     }
 
     public async Task<AccessRequestDetails?> GetByIdAsync(
@@ -262,6 +280,41 @@ public sealed class AccessRequestService : IAccessRequestService
             AgentId = agent?.AgentId,
             AuthMethod = agent?.AuthMethod,
         };
+    }
+
+    private static IReadOnlyDictionary<string, string> ProjectAccessRequestDetails(
+        AccessRequestDetails details,
+        string? comment,
+        AuthenticatedAgent? agent = null
+    )
+    {
+        return AuditDetailProjector.Project(
+            new Dictionary<string, object?>
+            {
+                ["requester"] = details.Requester,
+                ["status"] = details.Status.ToString(),
+                ["risk"] = details.Risk.ToString(),
+                ["comment"] = comment,
+                ["agentId"] = agent?.AgentId,
+                ["authMethod"] = agent?.AuthMethod,
+            }
+        );
+    }
+
+    private static IReadOnlyDictionary<string, string> ProjectSessionDetails(
+        SessionDetails details,
+        string? comment
+    )
+    {
+        return AuditDetailProjector.Project(
+            new Dictionary<string, object?>
+            {
+                ["sessionId"] = details.Id,
+                ["accessRequestId"] = details.AccessRequestId,
+                ["status"] = details.Status.ToString(),
+                ["comment"] = comment,
+            }
+        );
     }
 
     private static AccessRequestSummary ToSummary(AccessRequest accessRequest)

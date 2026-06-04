@@ -109,13 +109,6 @@ public sealed class EfSessionActionUnitOfWork : ISessionActionUnitOfWork
 
     private static AuditEventEntity ToEntity(AuditEvent auditEvent)
     {
-        return new AuditEventEntity
-        {
-            Id = auditEvent.Id,
-            EventType = auditEvent.EventType,
-            AggregateId = auditEvent.AggregateId,
-            OccurredAt = auditEvent.OccurredAt,
-            PayloadJson = auditEvent.PayloadJson,
-        };
+        return EfAuditEventRepository.ToEntity(auditEvent);
     }
 }

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Gatekeeper.Application.AccessRequests;
+using Gatekeeper.Application.AuditEvents;
 using Gatekeeper.Application.Common;
 using Gatekeeper.Core.AccessRequests;
 using Gatekeeper.Core.Sessions;
@@ -52,7 +53,8 @@ public sealed class LegacySessionActionExecutor
                 AuditEvent.CreateSessionActionFailed(
                     session.Id,
                     now,
-                    JsonSerializer.Serialize(BuildAuditPayload(session, command, reason))
+                    JsonSerializer.Serialize(BuildFullPayload(session, command, reason)),
+                    ProjectDetails(session, command, reason)
                 ),
                 cancellationToken
             );
@@ -78,7 +80,8 @@ public sealed class LegacySessionActionExecutor
                 AuditEvent.CreateSessionActionFailed(
                     session.Id,
                     now,
-                    JsonSerializer.Serialize(BuildAuditPayload(session, command, reason))
+                    JsonSerializer.Serialize(BuildFullPayload(session, command, reason)),
+                    ProjectDetails(session, command, reason)
                 ),
                 cancellationToken
             );
@@ -95,7 +98,8 @@ public sealed class LegacySessionActionExecutor
             AuditEvent.CreateSessionActionExecuted(
                 session.Id,
                 now,
-                JsonSerializer.Serialize(BuildAuditPayload(session, command, null))
+                JsonSerializer.Serialize(BuildFullPayload(session, command, null)),
+                ProjectDetails(session, command, null)
             ),
             cancellationToken
         );
@@ -121,7 +125,8 @@ public sealed class LegacySessionActionExecutor
         AuditEvent allowedAuditEvent = AuditEvent.CreateSessionActionAllowed(
             session.Id,
             now,
-            JsonSerializer.Serialize(BuildAuditPayload(session, command, null))
+            JsonSerializer.Serialize(BuildFullPayload(session, command, null)),
+            ProjectDetails(session, command, null)
         );
 
         return await _unitOfWork.TryReserveActionSlotAndSaveChangesAsync(
@@ -151,7 +156,8 @@ public sealed class LegacySessionActionExecutor
                 AuditEvent.CreateActionCountExceeded(
                     session.Id,
                     now,
-                    JsonSerializer.Serialize(BuildAuditPayload(latest, command, reason))
+                    JsonSerializer.Serialize(BuildFullPayload(latest, command, reason)),
+                    ProjectDetails(latest, command, reason)
                 ),
                 cancellationToken
             );
@@ -183,13 +189,14 @@ public sealed class LegacySessionActionExecutor
             AuditEvent.CreateSessionActionDenied(
                 session.Id,
                 now,
-                JsonSerializer.Serialize(BuildAuditPayload(session, command, reason))
+                JsonSerializer.Serialize(BuildFullPayload(session, command, reason)),
+                ProjectDetails(session, command, reason)
             ),
             cancellationToken
         );
     }
 
-    private static object BuildAuditPayload(
+    private static object BuildFullPayload(
         Session session,
         ExecuteSessionActionCommand command,
         string? reason
@@ -217,5 +224,24 @@ public sealed class LegacySessionActionExecutor
             AgentId = command.Agent?.AgentId,
             AuthMethod = command.Agent?.AuthMethod,
         };
+    }
+
+    private static IReadOnlyDictionary<string, string> ProjectDetails(
+        Session session,
+        ExecuteSessionActionCommand command,
+        string? reason
+    )
+    {
+        return AuditDetailProjector.Project(
+            new Dictionary<string, object?>
+            {
+                ["sessionId"] = session.Id,
+                ["accessRequestId"] = session.AccessRequestId,
+                ["capability"] = command.Capability,
+                ["reason"] = reason,
+                ["agentId"] = command.Agent?.AgentId,
+                ["authMethod"] = command.Agent?.AuthMethod,
+            }
+        );
     }
 }

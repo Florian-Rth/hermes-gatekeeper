@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Gatekeeper.Application.AccessRequests;
+using Gatekeeper.Application.AuditEvents;
 using Gatekeeper.Application.Common;
 using Gatekeeper.Core.AccessRequests;
 using Gatekeeper.Core.Sessions;
@@ -125,22 +126,30 @@ public sealed class SshSessionActionExecutor
         if (!executionResult.Succeeded)
         {
             string reason = SanitizeExecutionFailure(executionResult.FailureReason);
+            SshAuditDetails failedDetails = CreateExecutionAuditDetails(
+                policyResult.ResolvedAction,
+                executionResult,
+                durationMilliseconds
+            );
             await _auditEvents.AddAsync(
                 AuditEvent.CreateSessionActionFailed(
                     session.Id,
                     now,
                     JsonSerializer.Serialize(
-                        BuildAuditPayload(
+                        BuildFullPayload(
                             session,
                             command,
                             reason,
                             ToReasonCode(executionResult.FailureReason),
-                            CreateExecutionAuditDetails(
-                                policyResult.ResolvedAction,
-                                executionResult,
-                                durationMilliseconds
-                            )
+                            failedDetails
                         )
+                    ),
+                    ProjectSshDetails(
+                        session,
+                        command,
+                        reason,
+                        ToReasonCode(executionResult.FailureReason),
+                        failedDetails
                     )
                 ),
                 cancellationToken
@@ -149,23 +158,19 @@ public sealed class SshSessionActionExecutor
             return SessionActionResult.Conflicted(reason);
         }
 
+        SshAuditDetails executedDetails = CreateExecutionAuditDetails(
+            policyResult.ResolvedAction,
+            executionResult,
+            durationMilliseconds
+        );
         await _auditEvents.AddAsync(
             AuditEvent.CreateSessionActionExecuted(
                 session.Id,
                 now,
                 JsonSerializer.Serialize(
-                    BuildAuditPayload(
-                        session,
-                        command,
-                        null,
-                        "none",
-                        CreateExecutionAuditDetails(
-                            policyResult.ResolvedAction,
-                            executionResult,
-                            durationMilliseconds
-                        )
-                    )
-                )
+                    BuildFullPayload(session, command, null, "none", executedDetails)
+                ),
+                ProjectSshDetails(session, command, null, "none", executedDetails)
             ),
             cancellationToken
         );
@@ -194,7 +199,8 @@ public sealed class SshSessionActionExecutor
         AuditEvent allowedAuditEvent = AuditEvent.CreateSessionActionAllowed(
             session.Id,
             now,
-            JsonSerializer.Serialize(BuildAuditPayload(session, command, null, "none", sshDetails))
+            JsonSerializer.Serialize(BuildFullPayload(session, command, null, "none", sshDetails)),
+            ProjectSshDetails(session, command, null, "none", sshDetails)
         );
 
         return await _unitOfWork.TryReserveActionSlotAndSaveChangesAsync(
@@ -226,14 +232,15 @@ public sealed class SshSessionActionExecutor
                     session.Id,
                     now,
                     JsonSerializer.Serialize(
-                        BuildAuditPayload(
+                        BuildFullPayload(
                             latest,
                             command,
                             reason,
                             "action_count_exceeded",
                             sshDetails
                         )
-                    )
+                    ),
+                    ProjectSshDetails(latest, command, reason, "action_count_exceeded", sshDetails)
                 ),
                 cancellationToken
             );
@@ -270,14 +277,15 @@ public sealed class SshSessionActionExecutor
                 session.Id,
                 now,
                 JsonSerializer.Serialize(
-                    BuildAuditPayload(session, command, reason, reasonCode, sshDetails)
-                )
+                    BuildFullPayload(session, command, reason, reasonCode, sshDetails)
+                ),
+                ProjectSshDetails(session, command, reason, reasonCode, sshDetails)
             ),
             cancellationToken
         );
     }
 
-    private static object BuildAuditPayload(
+    private static object BuildFullPayload(
         Session session,
         ExecuteSessionActionCommand command,
         string? reason,
@@ -305,6 +313,52 @@ public sealed class SshSessionActionExecutor
             AgentId = command.Agent?.AgentId,
             AuthMethod = command.Agent?.AuthMethod,
         };
+    }
+
+    private static IReadOnlyDictionary<string, string> ProjectSshDetails(
+        Session session,
+        ExecuteSessionActionCommand command,
+        string? reason,
+        string? reasonCode = null,
+        SshAuditDetails? sshDetails = null
+    )
+    {
+        Dictionary<string, object?> source = new()
+        {
+            ["sessionId"] = session.Id,
+            ["accessRequestId"] = session.AccessRequestId,
+            ["targetAlias"] = command.Target,
+            ["action"] = command.Action,
+            ["reason"] = reason,
+            ["reasonCode"] = reasonCode,
+            ["agentId"] = command.Agent?.AgentId,
+            ["authMethod"] = command.Agent?.AuthMethod,
+        };
+
+        if (sshDetails is not null)
+        {
+            source["isMutating"] = sshDetails.IsMutating;
+            source["risk"] = sshDetails.Risk;
+            source["exitStatus"] = sshDetails.ExitStatus;
+            source["durationMs"] = sshDetails.DurationMilliseconds;
+            source["timedOut"] = sshDetails.TimedOut;
+            source["stdoutTruncated"] = sshDetails.StdoutTruncated;
+            source["stderrTruncated"] = sshDetails.StderrTruncated;
+            if (sshDetails.SafeParameters is not null)
+            {
+                source["safeParameters"] = sshDetails.SafeParameters;
+            }
+
+            if (sshDetails.Output is not null)
+            {
+                source["output"] = new AuditOutputMetadata(
+                    sshDetails.Output.StdoutBytes,
+                    sshDetails.Output.StderrBytes
+                );
+            }
+        }
+
+        return AuditDetailProjector.Project(source);
     }
 
     internal static SessionActionResult MapPolicyFailure(

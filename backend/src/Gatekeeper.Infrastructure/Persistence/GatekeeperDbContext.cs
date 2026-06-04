@@ -64,6 +64,7 @@ public sealed class GatekeeperDbContext : DbContext
             entity.Property(auditEvent => auditEvent.EventType).HasMaxLength(200).IsRequired();
             entity.Property(auditEvent => auditEvent.OccurredAt).IsRequired();
             entity.Property(auditEvent => auditEvent.PayloadJson).IsRequired();
+            entity.Property(auditEvent => auditEvent.DetailsJson);
             entity.HasIndex(auditEvent => auditEvent.AggregateId);
             entity.HasIndex(auditEvent => auditEvent.OccurredAt);
         });

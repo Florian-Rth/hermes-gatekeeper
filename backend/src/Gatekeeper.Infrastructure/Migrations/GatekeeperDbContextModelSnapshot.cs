@@ -82,6 +82,8 @@ public sealed partial class GatekeeperDbContextModelSnapshot : ModelSnapshot
 
                 entity.Property<Guid?>("AggregateId").HasColumnType("TEXT");
 
+                entity.Property<string>("DetailsJson").HasColumnType("TEXT");
+
                 entity
                     .Property<string>("EventType")
                     .IsRequired()

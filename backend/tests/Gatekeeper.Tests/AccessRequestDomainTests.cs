@@ -299,7 +299,8 @@ public sealed class AccessRequestDomainTests
         var auditEvent = AuditEvent.CreateAccessRequestCreated(
             aggregateId,
             occurredAt,
-            "{\"id\":\"request\"}"
+            "{\"id\":\"request\"}",
+            new Dictionary<string, string>()
         );
 
         Assert.NotEqual(Guid.Empty, auditEvent.Id);
@@ -318,10 +319,21 @@ public sealed class AccessRequestDomainTests
         var aggregateId = Guid.NewGuid();
         var payloadJson = "{\"id\":\"request\"}";
 
+        Dictionary<string, string> emptyDetails = new();
         var auditEvent =
             eventType == "AccessRequestApproved"
-                ? AuditEvent.CreateAccessRequestApproved(aggregateId, occurredAt, payloadJson)
-                : AuditEvent.CreateAccessRequestDenied(aggregateId, occurredAt, payloadJson);
+                ? AuditEvent.CreateAccessRequestApproved(
+                    aggregateId,
+                    occurredAt,
+                    payloadJson,
+                    emptyDetails
+                )
+                : AuditEvent.CreateAccessRequestDenied(
+                    aggregateId,
+                    occurredAt,
+                    payloadJson,
+                    emptyDetails
+                );
 
         Assert.NotEqual(Guid.Empty, auditEvent.Id);
         Assert.Equal(eventType, auditEvent.EventType);
